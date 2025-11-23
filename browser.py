@@ -1,18 +1,12 @@
-import socket
 import sys
-import ssl
 import urllib.parse
 import html
-import time 
 import gzip 
 
+from cache import get_cache_key, load_from_cache, store_in_cache
+from connection import get_connection, close_connection
+
 DEFAULT_LOCAL_FILE = "file:///Users/jinokseong/Documents/진옥/스터디/browser/default.html"
-
-# key: (scheme, host, port) -> socket
-CONNECTIONS = {}  
-
-# key: (scheme, host, port, path) -> {"expires_at": float, "body": str}
-CACHE = {}
 
 class URL:
   def __init__(self, url):
@@ -71,37 +65,6 @@ class URL:
     if ":" in self.host:
       self.host, port = self.host.split(":", 1)
       self.port = int(port)
-  
-  def _get_connection(self):
-    key = (self.scheme, self.host, self.port)
-
-    s = CONNECTIONS.get(key)
-    
-    if s is not None:
-      return s, key
-
-    s = socket.socket(
-      family=socket.AF_INET,
-      type=socket.SOCK_STREAM,
-      proto=socket.IPPROTO_TCP,
-    )
-    s.connect((self.host, self.port))
-
-    if self.scheme == "https":
-      ctx = ssl.create_default_context()
-      s = ctx.wrap_socket(s, server_hostname=self.host)
-
-    CONNECTIONS[key] = s
-    return s, key
-    
-
-  def _close_connection(self, key):
-    s = CONNECTIONS.pop(key, None)
-    if s is not None:
-      try:
-        s.close()
-      except OSError:
-        pass    
 
   def _read_chunked_body(self, response):
     body = bytearray()
@@ -163,24 +126,16 @@ class URL:
       except OSError as e:
         return f"[File error] {e}"
 
-    cache_key = None
-    if self.scheme in ["http", "https"]:
-      cache_key = (self.scheme, self.host, self.port, self.path)
-      entry = CACHE.get(cache_key)
-
-      if entry is not None:
-        now = time.time()
-        expires_at = entry["expires_at"]
-        if expires_at is not None and expires_at >= now:
-          return entry["body"]
-        else:
-          CACHE.pop(cache_key, None)
+    cache_key = get_cache_key(self.scheme, self.host, self.port, self.path)
+    cached_body = load_from_cache(cache_key)
+    if cached_body is not None:
+      return cached_body
 
     s = None
     key = None
 
     try:
-      s, key = self._get_connection()
+      s, key = get_connection(self.scheme, self.host, self.port)
 
       request = "GET {} HTTP/1.1\r\n".format(self.path)
       request += "Host: {}\r\n".format(self.host)
@@ -195,7 +150,7 @@ class URL:
       statusline = response.readline().decode("iso-8859-1")
 
       if not statusline:
-        self._close_connection(key)
+        close_connection(key)
         return "[Network error] Empty status line"
 
       version, status, explanation = statusline.split(" ", 2)
@@ -214,7 +169,7 @@ class URL:
         if not location:
           response.close()
           if key is not None:
-            self._close_connection(key)
+            close_connection(key)
           return f"[HTTP redirect {status}] (no Location header)"
         
         if location.startswith("/"):
@@ -225,7 +180,7 @@ class URL:
         response.close()
 
         if key is not None:
-          self._close_connection(key)
+          close_connection(key)
 
         return URL(redirect_url).request(
             redirect_count=redirect_count + 1,
@@ -244,12 +199,12 @@ class URL:
           body_bytes = response.read(length)
         else:
           body_bytes = response.read()
-          self._close_connection(key)
+          close_connection(key)
 
       response.close()
 
       if "close" in connection_hdr:
-        self._close_connection(key)
+        close_connection(key)
 
       content_encoding = response_headers.get("content-encoding", "").lower()
       if "gzip" in content_encoding:
@@ -260,41 +215,17 @@ class URL:
 
       body = body_bytes.decode("utf-8", errors="replace")
 
-      if cache_key is not None:
-        cache_control = response_headers.get("cache-control", "")
-        expires_at = None
+      store_in_cache(cache_key, response_headers, body)
 
-        if cache_control:
-          directives = [d.strip().lower() for d in cache_control.split(",")]
-
-          if "no-store" in directives:
-            expires_at = None
-
-          else:
-            for d in directives:
-              if d.startswith("max-age="):
-                try:
-                  seconds = int(d.split("=", 1)[1])
-                  expires_at = time.time() + seconds
-                except ValueError:
-                  pass
-                break 
-
-          if expires_at is not None:
-            CACHE[cache_key] = {
-              "expires_at": expires_at,
-              "body": body,
-            }
       return body
 
     except OSError as e:
       if key is not None:
-        self._close_connection(key)
+        close_connection(key)
       return f"[Network error] {e}"
 
 def decode_html_entities(text):
   return html.unescape(text)
-
 
 def show(body):
   decode = decode_html_entities(body)
@@ -308,7 +239,6 @@ def show(body):
     elif not in_tag:
       print(c, end="")
 
-
 def load(url):
   body = url.request()
 
@@ -317,17 +247,16 @@ def load(url):
   else:
     show(body)
 
-
 if __name__ == "__main__":
   if len(sys.argv) < 2:
     load(URL(""))
   else:
     load(URL(sys.argv[1]))
 
-# python3 study.py http://browser.engineering/examples/example1-simple.html
-# python3 study.py https://browser.engineering/examples/example1-simple.html
-# python3 study.py file:///Users/jinokseong/Documents/진옥/스터디/default.html
-# python3 study.py "data:text/html,<h1>Hello</h1>"
-# python3 study.py view-source:http://browser.engineering/examples/example1-simple.html
-# python3 study.py http://browser.engineering/redirect
-# python3 study.py http://browser.engineering/redirect3
+# python3 browser.py http://browser.engineering/examples/example1-simple.html
+# python3 browser.py https://browser.engineering/examples/example1-simple.html
+# python3 browser.py file:///Users/jinokseong/Documents/진옥/스터디/default.html
+# python3 browser.py "data:text/html,<h1>Hello</h1>"
+# python3 browser.py view-source:http://browser.engineering/examples/example1-simple.html
+# python3 browser.py http://browser.engineering/redirect
+# python3 browser.py http://browser.engineering/redirect3

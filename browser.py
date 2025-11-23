@@ -2,14 +2,18 @@ import sys
 import urllib.parse
 import html
 import gzip 
+import tkinter
 
 from cache import get_cache_key, load_from_cache, store_in_cache
 from connection import get_connection, close_connection
+from window import Window
 
 DEFAULT_LOCAL_FILE = "file:///Users/jinokseong/Documents/진옥/스터디/browser/default.html"
 
 class URL:
-  def __init__(self, url):
+  def __init__(self, url, window):
+    self.window = window
+
     if url == "":
       url = DEFAULT_LOCAL_FILE
 
@@ -107,7 +111,7 @@ class URL:
       return f"[Redirect error] Exceeded {max_redirects} redirects"
     
     if self.scheme == "view-source":
-      inner = URL(self.inner_url)
+      inner = URL(self.inner_url, self.window)
       return inner.request(
         redirect_count=redirect_count + 1,
         max_redirects=max_redirects,
@@ -182,7 +186,7 @@ class URL:
         if key is not None:
           close_connection(key)
 
-        return URL(redirect_url).request(
+        return URL(redirect_url, self.window).request(
             redirect_count=redirect_count + 1,
             max_redirects=max_redirects,
           )
@@ -229,6 +233,8 @@ def decode_html_entities(text):
 
 def show(body):
   decode = decode_html_entities(body)
+  
+  text = ""
 
   in_tag = False
   for c in decode:
@@ -237,7 +243,11 @@ def show(body):
     elif c == ">":
       in_tag = False
     elif not in_tag:
-      print(c, end="")
+      text += c
+      # print(c, end="")
+  
+  return text
+
 
 def load(url):
   body = url.request()
@@ -245,13 +255,18 @@ def load(url):
   if url.scheme == "view-source":
     print(body)
   else:
-    show(body)
+    text = show(body)
+    url.window.draw(text)
 
 if __name__ == "__main__":
+  window = Window()
+
   if len(sys.argv) < 2:
-    load(URL(""))
+    load(URL("", window))
   else:
-    load(URL(sys.argv[1]))
+    load(URL(sys.argv[1], window))
+
+  tkinter.mainloop()
 
 # python3 browser.py http://browser.engineering/examples/example1-simple.html
 # python3 browser.py https://browser.engineering/examples/example1-simple.html
@@ -260,3 +275,4 @@ if __name__ == "__main__":
 # python3 browser.py view-source:http://browser.engineering/examples/example1-simple.html
 # python3 browser.py http://browser.engineering/redirect
 # python3 browser.py http://browser.engineering/redirect3
+# /Library/Frameworks/Python.framework/Versions/3.14/bin/python3 browser.py http://browser.engineering/examples/xiyouji.html

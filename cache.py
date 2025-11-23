@@ -1,9 +1,10 @@
 import time
+from typing import Optional
 
 # key: (scheme, host, port, path) -> {"expires_at": float 또는 None, "body": str}
 _CACHE = {}
 
-def get_cache_key(scheme: str, host: str, port: int | None, path: str):
+def get_cache_key(scheme: str, host: str, port: Optional[int], path: str):
   if scheme in ["http", "https"]:
     return (scheme, host, port, path)
   return None

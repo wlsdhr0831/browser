@@ -1,10 +1,11 @@
 import socket
 import ssl
+from typing import Optional
 
 # key: (scheme, host, port) -> socket
 _CONNECTIONS = {}
 
-def get_connection(scheme: str, host: str, port: int | None):
+def get_connection(scheme: str, host: str, port: Optional[int]):
   key = (scheme, host, port)
 
   sock = _CONNECTIONS.get(key)

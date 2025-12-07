@@ -43,26 +43,45 @@ class Window:
   def layout(self):
     display_list = []
 
-    lines = self.text.split("\n")
-
+    cursor_x = HSTEP
     cursor_y = VSTEP
 
-    for line in lines:
-      n = len(line)
+    if self.rtl:
+      lines = self.text.split("\n")
+      cursor_y = VSTEP
 
-      if not self.rtl:
-        cursor_x = HSTEP
-      else:
-        if n > 0:
+      max_chars = max(1, (self.width - 2 * HSTEP) // HSTEP)
+
+      for line in lines:
+        start = 0
+        while True:
+          segment = line[start:start + max_chars]
+          if not segment:
+            break
+
+          n = len(segment)
           cursor_x = self.width - HSTEP - (n - 1) * HSTEP
-        else:
+
+          for c in segment:
+            display_list.append((cursor_x, cursor_y, c))
+            cursor_x += HSTEP
+
+          cursor_y += VSTEP
+          start += max_chars
+    else:
+      for c in self.text:
+        if c == "\n":
+          cursor_y += VSTEP * 1
+          cursor_x = HSTEP
+          continue
+
+        if cursor_x >= self.width - HSTEP:
+          cursor_y += VSTEP
           cursor_x = HSTEP
 
-      for c in line:
         display_list.append((cursor_x, cursor_y, c))
-        cursor_x += HSTEP
 
-      cursor_y += VSTEP
+        cursor_x += HSTEP 
 
     self.content_height = max(self.height, cursor_y + VSTEP)
     

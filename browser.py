@@ -248,23 +248,30 @@ def lex(body):
   
   return text
 
+def load(browser, rtl: bool = False):
+  body = browser.request()
 
-def load(url):
-  body = url.request()
-
-  if url.scheme == "view-source":
+  if browser.scheme == "view-source":
     print(body)
   else:
     text = lex(body)
-    url.window.draw(text)
+    browser.window.draw(text)
 
 if __name__ == "__main__":
-  window = Window()
+  rtl = False
+  url_arg_index = 1
 
-  if len(sys.argv) < 2:
+  if len(sys.argv) >= 2 and sys.argv[1] == "--rtl":
+    rtl = True
+    url_arg_index = 2
+
+  window = Window()
+  window.set_direction(rtl)
+
+  if len(sys.argv) < url_arg_index:
     load(Browser("", window))
   else:
-    load(Browser(sys.argv[1], window))
+    load(Browser(sys.argv[url_arg_index], window))
 
   tkinter.mainloop()
 

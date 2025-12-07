@@ -27,6 +27,8 @@ class Window:
     )
     self.scrollbar.pack(side=tkinter.RIGHT, fill=tkinter.Y)
 
+    self.rtl = False
+
     self.window.bind("<Up>", self.scrollup)
     self.window.bind("<Down>", self.scrolldown)
     self.window.bind("<MouseWheel>", self.mousewheel)
@@ -36,29 +38,32 @@ class Window:
 
   def show(self):
     self.canvas.create_rectangle(10, 20, 400, 300, outline="red")
-  
+
   def layout(self):
     display_list = []
 
-    cursor_x = HSTEP
+    lines = self.text.split("\n")
+
     cursor_y = VSTEP
 
-    for c in self.text:
-      if c == "\n":
-        cursor_y += VSTEP * 1
+    for line in lines:
+      n = len(line)
+
+      if not self.rtl:
         cursor_x = HSTEP
-        continue
+      else:
+        if n > 0:
+          cursor_x = self.width - HSTEP - (n - 1) * HSTEP
+        else:
+          cursor_x = HSTEP
 
-      if cursor_x >= self.width - HSTEP:
-        cursor_y += VSTEP
-        cursor_x = HSTEP
+      for c in line:
+        display_list.append((cursor_x, cursor_y, c))
+        cursor_x += HSTEP
 
-      display_list.append((cursor_x, cursor_y, c))
+      cursor_y += VSTEP
 
-      cursor_x += HSTEP  
-    
     self.content_height = max(self.height, cursor_y + VSTEP)
-
     return display_list
 
   def draw(self, text):
@@ -76,6 +81,9 @@ class Window:
       self.canvas.create_text(x, y - self.scroll, text=text)
     
     self.update_scrollbar()
+
+  def set_direction(self, rtl: bool):
+    self.rtl = rtl
 
   def scrollup(self, e):
     self.scroll -= SCROLL_STEP 

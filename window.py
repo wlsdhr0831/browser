@@ -1,6 +1,9 @@
 import tkinter
 import tkinter.font as tkfont
 
+from text import Text
+from tag import Tag
+
 INIT_WIDTH, INIT_HEIGHT = 800, 600
 HSTEP, VSTEP = 13, 18
 SCROLL_STEP = 100
@@ -33,9 +36,10 @@ class Window:
     self.window.bind("<Up>", self.scrollup)
     self.window.bind("<Down>", self.scrolldown)
     self.window.bind("<MouseWheel>", self.mousewheel)
-    self.window.bind("<Configure>", self.configure)
+    self.canvas.bind("<Configure>", self.configure)
 
-    self.text = ""
+    self.text = []    
+    self.tokens = []
 
   def show(self):
     self.canvas.create_rectangle(10, 20, 400, 300, outline="red")
@@ -46,74 +50,77 @@ class Window:
     cursor_x = HSTEP
     cursor_y = VSTEP
 
-    if self.rtl:
-      lines = self.text.split("\n")
-      cursor_y = VSTEP
+    weight = "normal"
+    style = "roman"
 
-      max_chars = max(1, (self.width - 2 * HSTEP) // HSTEP)
+    for tok in self.tokens:
+      if isinstance(tok, Tag):
+        if tok.tag == "i":
+          style = "italic"
+        elif tok.tag == "/i":
+          style = "roman"
+        elif tok.tag == "b":
+          weight = "bold"
+        elif tok.tag == "/b":
+          weight = "normal"
 
-      for line in lines:
-        start = 0
-        while True:
-          segment = line[start:start + max_chars]
-          if not segment:
-            break
+      if isinstance(tok, Text):
+        font = tkfont.Font(size=16, weight=weight, slant=style)
 
-          n = len(segment)
-          cursor_x = self.width - HSTEP - (n - 1) * HSTEP
+        text = tok.text.replace("\r\n", "\n").replace("\r", "\n")
+        text = text.replace("\\n", " \n ")
+        text = text.replace("\n", " \n ")
 
-          for c in segment:
-            display_list.append((cursor_x, cursor_y, c))
-            cursor_x += HSTEP
+        for word in text.split(" "):
+          if not word:
+            continue
 
-          cursor_y += VSTEP
-          start += max_chars
-    else:
-      for c in self.text:
-        if c == "\n":
-          cursor_y += VSTEP * 1
-          cursor_x = HSTEP
-          continue
+          if word == "\n":
+            cursor_y += font.metrics("linespace") * 1.25
+            cursor_x = self.width - HSTEP if self.rtl else HSTEP
+            continue
 
-        if cursor_x >= self.width - HSTEP:
-          cursor_y += VSTEP
-          cursor_x = HSTEP
+          w = font.measure(word)
 
-        display_list.append((cursor_x, cursor_y, c))
+          if self.rtl:
+            if cursor_x - w <= HSTEP:
+              cursor_y += font.metrics("linespace") * 1.25
+              cursor_x = self.width - HSTEP
 
-        cursor_x += HSTEP 
+            x = cursor_x
+            display_list.append((x, cursor_y, word, font))
+
+            cursor_x -= w + font.measure(" ")   
+          else:
+            if cursor_x + w >= self.width - HSTEP:
+              cursor_y += font.metrics("linespace") * 1.25
+              cursor_x = HSTEP
+
+            display_list.append((cursor_x, cursor_y, word, font))
+            cursor_x += w + font.measure(" ")
 
     self.content_height = max(self.height, cursor_y + VSTEP)
     
     return display_list
 
   def draw(self, text):
+    self.tokens = text
     self.text = text
 
     display_list = self.layout()
 
     self.canvas.delete("all")
 
-    bi_times = tkfont.Font(
-      family="Times",
-      size=16,
-      weight="bold",
-    )
-
-    bi_times_italic = tkfont.Font(
-      family="Times",
-      size=16,
-      weight="bold",
-      slant="italic",
-    )
-
-    for x, y, text in display_list:
+    for x, y, text, font in display_list:
       if y > self.scroll + self.height: 
         continue
       if y + VSTEP < self.scroll: 
         continue
 
-      self.canvas.create_text(x, y - self.scroll, text=text, font=bi_times_italic)
+      if self.rtl:
+        self.canvas.create_text(x, y - self.scroll, text=text, font=font, anchor="e",)
+      else:  
+        self.canvas.create_text(x, y - self.scroll, text=text, font=font, anchor="w",)
     
     self.update_scrollbar()
 

@@ -7,6 +7,8 @@ import tkinter
 from cache import get_cache_key, load_from_cache, store_in_cache
 from connection import get_connection, close_connection
 from window import Window
+from text import Text
+from tag import Tag
 
 DEFAULT_LOCAL_FILE = "file:///Users/jinokseong/Documents/진옥/스터디/browser/default.html"
 
@@ -232,21 +234,27 @@ def decode_html_entities(text):
   return html.unescape(text)
 
 def lex(body):
+  out = []
+  buffer = ""
   decode = decode_html_entities(body)
   
-  text = ""
-
   in_tag = False
   for c in decode:
     if c == "<":
       in_tag = True
+      if buffer: out.append(Text(buffer))
+      buffer = ""
     elif c == ">":
       in_tag = False
-    elif not in_tag:
-      text += c
-      # print(c, end="")
+      out.append(Tag(buffer))
+      buffer = ""
+    else:
+      buffer += c
   
-  return text
+  if not in_tag and buffer:
+    out.append(Text(buffer))
+
+  return out
 
 def load(browser, rtl: bool = False):
   body = browser.request()

@@ -10,7 +10,7 @@ from window import Window
 
 DEFAULT_LOCAL_FILE = "file:///Users/jinokseong/Documents/진옥/스터디/browser/default.html"
 
-class URL:
+class Browser:
   def __init__(self, url, window):
     self.window = window
 
@@ -111,7 +111,7 @@ class URL:
       return f"[Redirect error] Exceeded {max_redirects} redirects"
     
     if self.scheme == "view-source":
-      inner = URL(self.inner_url, self.window)
+      inner = Browser(self.inner_url, self.window)
       return inner.request(
         redirect_count=redirect_count + 1,
         max_redirects=max_redirects,
@@ -186,7 +186,7 @@ class URL:
         if key is not None:
           close_connection(key)
 
-        return URL(redirect_url, self.window).request(
+        return Browser(redirect_url, self.window).request(
             redirect_count=redirect_count + 1,
             max_redirects=max_redirects,
           )
@@ -231,7 +231,7 @@ class URL:
 def decode_html_entities(text):
   return html.unescape(text)
 
-def show(body):
+def lex(body):
   decode = decode_html_entities(body)
   
   text = ""
@@ -255,16 +255,16 @@ def load(url):
   if url.scheme == "view-source":
     print(body)
   else:
-    text = show(body)
+    text = lex(body)
     url.window.draw(text)
 
 if __name__ == "__main__":
   window = Window()
 
   if len(sys.argv) < 2:
-    load(URL("", window))
+    load(Browser("", window))
   else:
-    load(URL(sys.argv[1], window))
+    load(Browser(sys.argv[1], window))
 
   tkinter.mainloop()
 

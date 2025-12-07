@@ -1,4 +1,5 @@
 import tkinter
+import tkinter.font as tkfont
 
 INIT_WIDTH, INIT_HEIGHT = 800, 600
 HSTEP, VSTEP = 13, 18
@@ -64,6 +65,7 @@ class Window:
       cursor_y += VSTEP
 
     self.content_height = max(self.height, cursor_y + VSTEP)
+    
     return display_list
 
   def draw(self, text):
@@ -73,12 +75,26 @@ class Window:
 
     self.canvas.delete("all")
 
+    bi_times = tkfont.Font(
+      family="Times",
+      size=16,
+      weight="bold",
+    )
+
+    bi_times_italic = tkfont.Font(
+      family="Times",
+      size=16,
+      weight="bold",
+      slant="italic",
+    )
+
     for x, y, text in display_list:
       if y > self.scroll + self.height: 
         continue
       if y + VSTEP < self.scroll: 
         continue
-      self.canvas.create_text(x, y - self.scroll, text=text)
+
+      self.canvas.create_text(x, y - self.scroll, text=text, font=bi_times_italic)
     
     self.update_scrollbar()
 

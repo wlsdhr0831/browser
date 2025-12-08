@@ -1,8 +1,12 @@
+import tkinter
+import tkinter.font as tkfont
 import time
 from typing import Optional
 
 # key: (scheme, host, port, path) -> {"expires_at": float 또는 None, "body": str}
 _CACHE = {}
+# key: (size, weight, style)
+_FONTS = {}
 
 def get_cache_key(scheme: str, host: str, port: Optional[int], path: str):
   if scheme in ["http", "https"]:
@@ -54,3 +58,13 @@ def store_in_cache(cache_key, response_headers: dict, body: str):
       "expires_at": expires_at,
       "body": body,
     }
+
+def get_font(size, weight, style):
+  key = (size, weight, style)
+
+  if key not in _FONTS:
+    font = tkfont.Font(size=size, weight=weight, slant=style)
+    label = tkinter.Label(font=font)
+    _FONTS[key] = (font, label)
+
+  return _FONTS[key][0]

@@ -3,6 +3,7 @@ import tkinter.font as tkfont
 from text import Text
 from tag import Tag
 
+from cache import get_font
 
 HSTEP, VSTEP = 13, 18
 
@@ -59,7 +60,7 @@ class Layout:
       self.word(tok.text)
 
   def word(self, text):
-    font = tkfont.Font(size=self.size, weight=self.weight, slant=self.style)
+    font = get_font(self.size, self.weight, self.style)
 
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = text.replace("\\n", " \n ")

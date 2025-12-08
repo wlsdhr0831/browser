@@ -3,6 +3,7 @@ import tkinter.font as tkfont
 
 from text import Text
 from tag import Tag
+from layout import Layout
 
 INIT_WIDTH, INIT_HEIGHT = 800, 600
 HSTEP, VSTEP = 13, 18
@@ -44,70 +45,13 @@ class Window:
   def show(self):
     self.canvas.create_rectangle(10, 20, 400, 300, outline="red")
 
-  def layout(self):
-    display_list = []
-
-    cursor_x = HSTEP
-    cursor_y = VSTEP
-
-    weight = "normal"
-    style = "roman"
-
-    for tok in self.tokens:
-      if isinstance(tok, Tag):
-        if tok.tag == "i":
-          style = "italic"
-        elif tok.tag == "/i":
-          style = "roman"
-        elif tok.tag == "b":
-          weight = "bold"
-        elif tok.tag == "/b":
-          weight = "normal"
-
-      if isinstance(tok, Text):
-        font = tkfont.Font(size=16, weight=weight, slant=style)
-
-        text = tok.text.replace("\r\n", "\n").replace("\r", "\n")
-        text = text.replace("\\n", " \n ")
-        text = text.replace("\n", " \n ")
-
-        for word in text.split(" "):
-          if not word:
-            continue
-
-          if word == "\n":
-            cursor_y += font.metrics("linespace") * 1.25
-            cursor_x = self.width - HSTEP if self.rtl else HSTEP
-            continue
-
-          w = font.measure(word)
-
-          if self.rtl:
-            if cursor_x - w <= HSTEP:
-              cursor_y += font.metrics("linespace") * 1.25
-              cursor_x = self.width - HSTEP
-
-            x = cursor_x
-            display_list.append((x, cursor_y, word, font))
-
-            cursor_x -= w + font.measure(" ")   
-          else:
-            if cursor_x + w >= self.width - HSTEP:
-              cursor_y += font.metrics("linespace") * 1.25
-              cursor_x = HSTEP
-
-            display_list.append((cursor_x, cursor_y, word, font))
-            cursor_x += w + font.measure(" ")
-
-    self.content_height = max(self.height, cursor_y + VSTEP)
-    
-    return display_list
-
   def draw(self, text):
-    self.tokens = text
     self.text = text
 
-    display_list = self.layout()
+    layout = Layout(text, self.width, self.rtl)
+    display_list = layout.display_list
+
+    self.content_height = max(self.height, layout.content_height)
 
     self.canvas.delete("all")
 

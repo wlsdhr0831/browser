@@ -1,8 +1,5 @@
 import tkinter
-import tkinter.font as tkfont
 
-from text import Text
-from tag import Tag
 from layout import Layout
 
 INIT_WIDTH, INIT_HEIGHT = 800, 600
@@ -61,10 +58,7 @@ class Window:
       if y + VSTEP < self.scroll: 
         continue
 
-      if self.rtl:
-        self.canvas.create_text(x, y - self.scroll, text=text, font=font, anchor="e",)
-      else:  
-        self.canvas.create_text(x, y - self.scroll, text=text, font=font, anchor="w",)
+      self.canvas.create_text(x, y - self.scroll, text=text, font=font, anchor="nw",)
     
     self.update_scrollbar()
 

@@ -5,7 +5,7 @@ from typing import Optional
 
 # key: (scheme, host, port, path) -> {"expires_at": float 또는 None, "body": str}
 _CACHE = {}
-# key: (size, weight, style)
+# key: (family, size, weight, style)
 _FONTS = {}
 
 def get_cache_key(scheme: str, host: str, port: Optional[int], path: str):
@@ -59,12 +59,15 @@ def store_in_cache(cache_key, response_headers: dict, body: str):
       "body": body,
     }
 
-def get_font(size, weight, style):
-  key = (size, weight, style)
+def get_font(size, weight, style, family=None):
+  key = (family or "default", size, weight, style)
 
   if key not in _FONTS:
-    font = tkfont.Font(size=size, weight=weight, slant=style)
-    label = tkinter.Label(font=font)
-    _FONTS[key] = (font, label)
-
-  return _FONTS[key][0]
+    if family:
+      try:
+        _FONTS[key] = tkfont.Font(family=family, size=size, weight=weight, slant=style)
+      except:
+        _FONTS[key] = tkfont.Font(family="Courier New", size=size, weight=weight, slant=style)
+    else:
+      _FONTS[key] = tkfont.Font(size=size, weight=weight, slant=style)
+  return _FONTS[key]

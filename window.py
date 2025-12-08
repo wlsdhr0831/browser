@@ -1,6 +1,7 @@
 import tkinter
 
 from layout import Layout
+from htmlParser import HTMLParser
 
 INIT_WIDTH, INIT_HEIGHT = 800, 600
 HSTEP, VSTEP = 13, 18
@@ -39,13 +40,12 @@ class Window:
     self.text = []    
     self.tokens = []
 
-  def show(self):
-    self.canvas.create_rectangle(10, 20, 400, 300, outline="red")
-
   def draw(self, text):
+    node = HTMLParser(text).parse()
+
     self.text = text
 
-    layout = Layout(text, self.width, self.rtl)
+    layout = Layout(node, self.width, self.rtl)
     display_list = layout.display_list
 
     self.content_height = max(self.height, layout.content_height)

@@ -8,7 +8,7 @@ from cache import get_font
 HSTEP, VSTEP = 13, 18
 
 class Layout:
-  def __init__(self, tokens, width, rtl):
+  def __init__(self, node, width, rtl):
     self.display_list = []
 
     self.rtl = rtl
@@ -35,68 +35,67 @@ class Layout:
     self.is_pre = False
     self.font_family = None
 
-    for tok in tokens:
-      self.token(tok)
+    self.recurse(node)
 
     self.flush()
     self.content_height = self.cursor_y + VSTEP
-
-  def token(self, tok):
-    if isinstance(tok, Tag):
-      raw = tok.tag.strip()
-
-      if raw.startswith("h1") and "class=\"title\"" in raw:
-        self.flush()
-        self.align_center = True
-      elif raw == "/h1":
-        self.flush()
-        self.align_center = False
-      if tok.tag == "i":
-        self.style = "italic"
-      elif tok.tag == "/i":
+  
+  def open_tag(self, tag):
+    if tag == "i":
+      self.style = "italic"
+    elif tag == "b":
+      self.weight = "bold"
+    elif tag == "small":
+      self.size -= 2
+    elif tag == "big":
+      self.size += 4
+    elif tag == "br":
+      self.flush()
+    elif tag == "sup":
+      self.size -= 4
+      self.is_sup = True
+    elif tag == "abbr":
+      self.abbr_size_stack.append(self.size)
+      self.size -= 2
+      self.is_abbr = True
+    elif tag == "pre":
+      self.flush()
+      self.is_pre = True
+      self.font_family = "SF Mono"   
+    
+  def close_tag(self, tag):
+    if tag == "i":
         self.style = "roman"
-      elif tok.tag == "b":
-        self.weight = "bold"
-      elif tok.tag == "/b":
-        self.weight = "normal"
-      elif tok.tag == "small":
-        self.size -= 2
-      elif tok.tag == "/small":
-        self.size += 2
-      elif tok.tag == "big":
-        self.size += 4
-      elif tok.tag == "/big":
-        self.size -= 4
-      elif tok.tag == "br":
-        self.flush()
-      elif tok.tag == "/p":
-        self.flush()
-        self.cursor_y += VSTEP
-      elif tok.tag == "sup":
-        self.size -= 4
-        self.is_sup = True
-      elif tok.tag == "/sup":
-        self.size += 4
-        self.is_sup = False
-      elif tok.tag == "abbr":
-        self.abbr_size_stack.append(self.size)
-        self.size -= 2
-        self.is_abbr = True
-      elif tok.tag == "/abbr":
-        if self.abbr_size_stack:
-          self.size = self.abbr_size_stack.pop()
-        self.is_abbr = False
-      elif raw == "pre":
-        self.flush()
-        self.is_pre = True
-        self.font_family = "SF Mono"   
-      elif raw == "/pre":
-        self.flush()
-        self.is_pre = False
-        self.font_family = None
-
-    if isinstance(tok, Text):
-      self.word(tok.text)
+    elif tag == "b":
+      self.weight = "normal"
+    elif tag == "small":
+      self.size += 2
+    elif tag == "big":
+      self.size -= 4
+    elif tag == "p":
+      self.flush()
+      self.cursor_y += VSTEP
+    elif tag == "sup":
+      self.size += 4
+      self.is_sup = False
+    elif tag == "abbr":
+      if self.abbr_size_stack:
+        self.size = self.abbr_size_stack.pop()
+      self.is_abbr = False
+    elif tag == "pre":
+      self.flush()
+      self.is_pre = False
+      self.font_family = None
+    
+  def recurse(self, tree):
+    if isinstance(tree, Text):
+      for word in tree.text.split():
+        self.word(word)
+    else:
+      self.open_tag(tree.tag)
+      for child in tree.children:
+        self.recurse(child)
+      self.close_tag(tree.tag)
 
   def word(self, text):
     if self.is_pre:

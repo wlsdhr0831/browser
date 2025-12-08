@@ -230,31 +230,38 @@ class Browser:
         close_connection(key)
       return f"[Network error] {e}"
 
+def remove_html_comments(text):
+  result = []
+  i = 0
+  n = len(text)
+  is_comment = False
+
+  while i < n:
+    if not is_comment and text.startswith("<!--", i):
+      is_comment = True
+      i += 4
+      continue
+    
+    if is_comment and text.startswith("-->", i):
+      is_comment = False
+      i += 3
+      continue
+
+    if not is_comment:
+        result.append(text[i])
+
+    i += 1
+
+  return "".join(result)
+
 def decode_html_entities(text):
   return html.unescape(text)
 
 def lex(body):
-  out = []
-  buffer = ""
+  body = remove_html_comments(body)
   decode = decode_html_entities(body)
-  
-  in_tag = False
-  for c in decode:
-    if c == "<":
-      in_tag = True
-      if buffer: out.append(Text(buffer))
-      buffer = ""
-    elif c == ">":
-      in_tag = False
-      out.append(Tag(buffer))
-      buffer = ""
-    else:
-      buffer += c
-  
-  if not in_tag and buffer:
-    out.append(Text(buffer))
 
-  return out
+  return decode
 
 def load(browser, rtl: bool = False):
   body = browser.request()

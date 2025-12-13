@@ -36,8 +36,10 @@ class HTMLParser:
     return self.finish()
 
   def add_text(self, text):
-    if text.isspace(): return
-    
+    if text.isspace():
+      if not (self.unfinished and self.unfinished[-1].tag == "pre"):
+        return
+
     if self.unfinished and self.unfinished[-1].tag == "script":
       return
 
@@ -106,7 +108,7 @@ class HTMLParser:
           self.add_tag("head")
         else:
           self.add_tag('body')
-      elif open_tags == ["html", "body"] and tag not in ["/head"] + HEAD_TAGS:
+      elif open_tags == ["html", "head"] and tag not in ["/head"] + HEAD_TAGS:
         self.add_tag("/head")
       else:
         break

@@ -7,6 +7,8 @@ from cache import get_font
 
 HSTEP, VSTEP = 13, 18
 
+BLOCK_TAGS = {"h1","h2","h3","h4","h5","h6","p","div","section","article","header","footer","blockquote","li"}
+
 class Layout:
   def __init__(self, node, width, rtl):
     self.display_list = []
@@ -41,6 +43,9 @@ class Layout:
     self.content_height = self.cursor_y + VSTEP
   
   def open_tag(self, tag):
+    if tag in BLOCK_TAGS:
+      self.flush()
+
     if tag == "i":
       self.style = "italic"
     elif tag == "b":
@@ -72,7 +77,7 @@ class Layout:
       self.size += 2
     elif tag == "big":
       self.size -= 4
-    elif tag == "p":
+    elif tag in BLOCK_TAGS:
       self.flush()
       self.cursor_y += VSTEP
     elif tag == "sup":
@@ -89,8 +94,11 @@ class Layout:
     
   def recurse(self, tree):
     if isinstance(tree, Text):
-      for word in tree.text.split():
-        self.word(word)
+      if self.is_pre:
+        self.word(tree.text)
+      else:
+        for word in tree.text.split():
+          self.word(word)
     else:
       self.open_tag(tree.tag)
       for child in tree.children:

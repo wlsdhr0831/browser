@@ -181,23 +181,18 @@ class Layout:
     baseline = self.cursor_y + max_ascent
 
     if self.align_center:
-      total_width = 0
-      for x, y, word, font, is_sup in self.line:
-        total_width += font.measure(word) + font.measure(" ")
-
-      start_x = (self.width - total_width) / 2   
-
-      ascent = font.metrics("ascent")
-      top_y = baseline - ascent
-
-      if is_sup:
-        top_y -= ascent * 0.4
+      total_width = sum(font.measure(word) + font.measure(" ") for x, y, word, font, is_sup, is_abbr in self.line)
+      start_x = (self.width - total_width) / 2
 
       cur = start_x
       for x, y, word, font, is_sup, is_abbr in self.line:
-        w = font.measure(word)
+        ascent = font.metrics()["ascent"]
+        top_y = baseline - ascent
+        if is_sup:
+          top_y -= ascent * 0.4
+
         self.display_list.append((cur, top_y, word, font))
-        cur += w + font.measure(" ")
+        cur += font.measure(word) + font.measure(" ")
     else:
       for x, y, word, font, is_sup, is_abbr in self.line:
         ascent = font.metrics("ascent")

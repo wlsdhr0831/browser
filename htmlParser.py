@@ -1,4 +1,5 @@
 from urllib.request import urlopen
+import shlex
 
 from text import Text
 from tag import Tag
@@ -71,21 +72,20 @@ class HTMLParser:
       self.unfinished.append(node)
   
   def get_attributes(self, text):
-    parts = text.split()
+    parts = shlex.split(text) if text and text.strip() else []
+    if not parts:
+      return "", {}
+
     tag = parts[0].casefold()
 
     attributes = {}
     for attrpair in parts[1:]:
       if "=" in attrpair:
         key, value = attrpair.split("=", 1)
-        
-        if len(value) > 2 and value[0] in ["'", "\""]:
-          value = value[1:-1]
-
         attributes[key.casefold()] = value
       else:
-       attributes[attrpair.casefold()] = True
-    
+        attributes[attrpair.casefold()] = True
+
     return tag, attributes
 
   def finish(self):
@@ -95,6 +95,8 @@ class HTMLParser:
       node = self.unfinished.pop()
       parent = self.unfinished[-1]
       parent.children.append(node)
+    if not self.unfinished:
+      return None
     return self.unfinished.pop()
   
   def implicit_tags(self, tag):
@@ -108,7 +110,7 @@ class HTMLParser:
           self.add_tag("head")
         else:
           self.add_tag('body')
-      elif open_tags == ["html", "head"] and tag not in ["/head"] + HEAD_TAGS:
+      elif ("head" in open_tags) and ("body" not in open_tags) and tag not in ["/head"] + HEAD_TAGS:
         self.add_tag("/head")
       else:
         break

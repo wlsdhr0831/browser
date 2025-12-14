@@ -2,6 +2,8 @@ import tkinter
 
 from layout import Layout
 from htmlParser import HTMLParser
+from text import Text
+from tag import Tag
 
 INIT_WIDTH, INIT_HEIGHT = 800, 600
 HSTEP, VSTEP = 13, 18
@@ -39,8 +41,13 @@ class Window:
 
     self.text = []    
     self.tokens = []
+    self.is_source = False
 
   def draw(self, text):
+    if getattr(self, "is_source", False):
+      self.draw_source(self.text)
+      return
+
     node = HTMLParser(text).parse()
 
     self.text = text
@@ -60,6 +67,30 @@ class Window:
 
       self.canvas.create_text(x, y - self.scroll, text=text, font=font, anchor="nw",)
     
+    self.update_scrollbar()
+
+  def draw_source(self, source_text):
+    self.is_source = True
+    self.text = source_text
+    root = Tag('pre', {}, None)
+    node_text = Text(source_text, root)
+    root.children.append(node_text)
+
+    layout = Layout(root, self.width, self.rtl)
+    display_list = layout.display_list
+
+    self.content_height = max(self.height, layout.content_height)
+
+    self.canvas.delete("all")
+
+    for x, y, text, font in display_list:
+      if y > self.scroll + self.height:
+        continue
+      if y + VSTEP < self.scroll:
+        continue
+
+      self.canvas.create_text(x, y - self.scroll, text=text, font=font, anchor="nw")
+
     self.update_scrollbar()
 
   def set_direction(self, rtl: bool):

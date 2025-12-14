@@ -3,6 +3,7 @@ import urllib.parse
 import html
 import gzip 
 import tkinter
+import re
 
 from cache import get_cache_key, load_from_cache, store_in_cache
 from connection import get_connection, close_connection
@@ -231,28 +232,7 @@ class Browser:
       return f"[Network error] {e}"
 
 def remove_html_comments(text):
-  result = []
-  i = 0
-  n = len(text)
-  is_comment = False
-
-  while i < n:
-    if not is_comment and text.startswith("<!--", i):
-      is_comment = True
-      i += 4
-      continue
-    
-    if is_comment and text.startswith("-->", i):
-      is_comment = False
-      i += 3
-      continue
-
-    if not is_comment:
-        result.append(text[i])
-
-    i += 1
-
-  return "".join(result)
+  return re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL)
 
 def decode_html_entities(text):
   return html.unescape(text)
@@ -267,7 +247,7 @@ def load(browser, rtl: bool = False):
   body = browser.request()
 
   if browser.scheme == "view-source":
-    print(body)
+    browser.window.draw_source(body)
   else:
     text = lex(body)
     browser.window.draw(text)
@@ -297,6 +277,7 @@ if __name__ == "__main__":
 # python3 browser.py view-source:http://browser.engineering/examples/example1-simple.html
 # python3 browser.py http://browser.engineering/redirect
 # python3 browser.py http://browser.engineering/redirect3
+# /Library/Frameworks/Python.framework/Versions/3.14/bin/python3 browser.py view-source:file:///Users/jinokseong/Documents/진옥/스터디/browser/default.html
 # /Library/Frameworks/Python.framework/Versions/3.14/bin/python3 browser.py file:///Users/jinokseong/Documents/진옥/스터디/browser/default.html
 # /Library/Frameworks/Python.framework/Versions/3.14/bin/python3 browser.py http://browser.engineering/examples/xiyouji.html
 # /Library/Frameworks/Python.framework/Versions/3.14/bin/python3 browser.py --rtl http://browser.engineering/examples/example2-rtl.html

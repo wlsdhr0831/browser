@@ -1,4 +1,3 @@
-import tkinter
 import tkinter.font as tkfont
 import time
 from typing import Optional

@@ -1,256 +1,172 @@
 import sys
-import urllib.parse
-import html
-import gzip 
 import tkinter
-import re
 
-from cache import get_cache_key, load_from_cache, store_in_cache
-from connection import get_connection, close_connection
-from window import Window
+from url import URL, lex
+from htmlParser import HTMLParser
+from element import Element
 from text import Text
-from tag import Tag
+from documentLayout import DocumentLayout
 
-DEFAULT_LOCAL_FILE = "file:///Users/jinokseong/Documents/진옥/스터디/browser/default.html"
+INIT_WIDTH, INIT_HEIGHT = 800, 600
+HSTEP, VSTEP = 13, 18
+SCROLL_STEP = 100
+
+
+def paint_tree(layout_object, display_list):
+  display_list.extend(layout_object.paint())
+  for child in layout_object.children:
+    paint_tree(child, display_list)
+  return display_list
+
 
 class Browser:
-  def __init__(self, url, window):
-    self.window = window
+  def __init__(self, rtl=False):
+    self.rtl = rtl
+    self.scroll = 0
+    self.content_height = INIT_HEIGHT
+    self.display_list = []
+    self.text = ""
+    self.is_source = False
 
-    if url == "":
-      url = DEFAULT_LOCAL_FILE
+    self.window = tkinter.Tk()
+    self.window.title("Marsh Browser")
 
-    self.original_url = url
+    self.frame = tkinter.Frame(self.window)
+    self.frame.pack(fill=tkinter.BOTH, expand=True)
 
-    self.scheme, url = url.split(":", 1)
-    assert self.scheme in ["http", "https", "file", "data", "view-source"]
+    self.canvas = tkinter.Canvas(self.frame, width=INIT_WIDTH, height=INIT_HEIGHT)
+    self.canvas.pack(side=tkinter.LEFT, fill=tkinter.BOTH, expand=True)
 
-    if self.scheme == "view-source":
-      self.inner_url = url
-      return
-    
-    if self.scheme == "file":
-      url = url[2:]
-      if url.startswith("/"):
-        self.path = url
-      else:
-        self.path = "/" + url
-      self.host = ""
-      self.port = None
-      return
-    
-    elif self.scheme == "data":
-      if "," in url:
-        metadata, data_part = url.split(",", 1)
-      else:
-        metadata, data_part = "", url
+    self.scrollbar = tkinter.Scrollbar(self.frame, orient=tkinter.VERTICAL, command=self.on_scrollbar)
+    self.scrollbar.pack(side=tkinter.RIGHT, fill=tkinter.Y)
 
-      self.mimetype = metadata if metadata else "text/plain"
-      self.data_body = urllib.parse.unquote(data_part)
-      self.host = ""
-      self.port = None
-      self.path = ""
-      return
+    self.width = INIT_WIDTH
+    self.height = INIT_HEIGHT
 
-    if self.scheme == "http":
-      url = url[2:]
-      self.port = 80
-    elif self.scheme == "https":
-      url = url[2:]
-      self.port = 443    
+    self.window.bind("<Up>", self.scrollup)
+    self.window.bind("<Down>", self.scrolldown)
+    self.window.bind("<MouseWheel>", self.mousewheel)
+    self.canvas.bind("<Configure>", self.configure)
 
-    if "/" not in url:
-      url = url + "/"
+  def load(self, url_str: str):
+    url = URL(url_str)
+    body = url.request()
 
-    self.host, url = url.split("/", 1)
-    self.path = "/" + url
+    if url.scheme == "view-source":
+      self.is_source = True
+      self.text = body
+      self.render_source(body)
+    else:
+      self.is_source = False
+      self.text = lex(body)
+      self.render_html(self.text)
 
-    self.connection = "keep-alive"
-    self.userAgent = "KAKAOPAY/25.9.0"
-    self.acceptEncoding = "gzip"
+    self.draw()
 
-    if ":" in self.host:
-      self.host, port = self.host.split(":", 1)
-      self.port = int(port)
+  def render_html(self, text: str):
+    node = HTMLParser(text).parse()
+    self.document = DocumentLayout(node, width=self.width, rtl=self.rtl)
+    self.document.layout()
 
-  def _read_chunked_body(self, response):
-    body = bytearray()
-    while True:
-      line = response.readline().decode("iso-8859-1")
+    self.display_list = []
+    paint_tree(self.document, self.display_list)
 
-      if not line:
-        break
+    self.content_height = max(self.height, self.document.content_height)
+    self.clamp_scroll()
 
-      line = line.strip()
-      if line == "":
+  def render_source(self, source_text: str):
+    root = Element("pre", {}, None)
+    root.children.append(Text(source_text, root))
+
+    self.document = DocumentLayout(root, width=self.width, rtl=self.rtl, bold=True, tag_color="#881280")
+    self.document.layout()
+
+    self.display_list = []
+    paint_tree(self.document, self.display_list)
+
+    self.content_height = max(self.height, self.document.content_height)
+    self.clamp_scroll()
+
+  def draw(self):
+    self.canvas.delete("all")
+
+    for cmd in self.display_list:
+      if cmd.top > self.scroll + self.height:
         continue
+      if cmd.bottom < self.scroll:
+        continue
+      cmd.execute(self.scroll, self.canvas)
 
-      size_str = line.split(";", 1)[0]
-      try:
-        chunk_size = int(size_str, 16)
-      except ValueError:
-        break
+    self.update_scrollbar()
 
-      if chunk_size == 0:
-        while True:
-          trailer = response.readline().decode("iso-8859-1")
-          if trailer in ("\r\n", ""):
-            break
-        break
+  def scrollup(self, e=None):
+    self.scroll -= SCROLL_STEP
+    self.clamp_scroll()
+    self.draw()
 
-      chunk = response.read(chunk_size)
-      if not chunk:
-        break
-      body.extend(chunk)
+  def scrolldown(self, e=None):
+    self.scroll += SCROLL_STEP
+    self.clamp_scroll()
+    self.draw()
 
-      _ = response.read(2) 
+  def mousewheel(self, e):
+    step = SCROLL_STEP * (abs(e.delta) or 1)
+    if e.delta < 0:
+      self.scroll += step
+    else:
+      self.scroll -= step
+    self.clamp_scroll()
+    self.draw()
 
-    return bytes(body)
-  
-  def request(self, redirect_count=0, max_redirects=10):
-    print(redirect_count, max_redirects, self.original_url)
-
-    if redirect_count > max_redirects:
-      return f"[Redirect error] Exceeded {max_redirects} redirects"
-    
-    if self.scheme == "view-source":
-      inner = Browser(self.inner_url, self.window)
-      return inner.request(
-        redirect_count=redirect_count + 1,
-        max_redirects=max_redirects,
-      )
-
-    if self.scheme == "data":
-      return self.data_body
-
-    if self.scheme == "file":
-      try:
-        with open(self.path, "r", encoding="utf8") as f:
-          body = f.read()
-        return body
-      except FileNotFoundError:
-        return f"[File error] File not found: {self.path}"
-      except OSError as e:
-        return f"[File error] {e}"
-
-    cache_key = get_cache_key(self.scheme, self.host, self.port, self.path)
-    cached_body = load_from_cache(cache_key)
-    if cached_body is not None:
-      return cached_body
-
-    s = None
-    key = None
-
-    try:
-      s, key = get_connection(self.scheme, self.host, self.port)
-
-      request = "GET {} HTTP/1.1\r\n".format(self.path)
-      request += "Host: {}\r\n".format(self.host)
-      request += "Connection: {}\r\n".format(self.connection)
-      request += "User-Agent: {}\r\n".format(self.userAgent)
-      request += "Accept-Encoding: {}\r\n".format(self.acceptEncoding)
-      request += "\r\n"
-
-      s.send(request.encode("utf8"))
-
-      response = s.makefile("rb")
-      statusline = response.readline().decode("iso-8859-1")
-
-      if not statusline:
-        close_connection(key)
-        return "[Network error] Empty status line"
-
-      version, status, explanation = statusline.split(" ", 2)
-
-      response_headers = {}
-      while True:
-        line = response.readline().decode("iso-8859-1")
-        if line == "\r\n":
-          break
-        header, value = line.split(":", 1)
-        response_headers[header.casefold()] = value.strip()
-
-      if status.startswith("3"):
-        location = response_headers.get("location")
-
-        if not location:
-          response.close()
-          if key is not None:
-            close_connection(key)
-          return f"[HTTP redirect {status}] (no Location header)"
-        
-        if location.startswith("/"):
-          redirect_url = f"{self.scheme}://{self.host}{location}"
-        else:
-          redirect_url = location
-
-        response.close()
-
-        if key is not None:
-          close_connection(key)
-
-        return Browser(redirect_url, self.window).request(
-            redirect_count=redirect_count + 1,
-            max_redirects=max_redirects,
-          )
-
-      transfer_encoding = response_headers.get("transfer-encoding", "").lower()
-      content_length = response_headers.get("content-length")
-      connection_hdr = response_headers.get("connection", "").lower()
-
-      if "chunked" in transfer_encoding:
-        body_bytes = self._read_chunked_body(response)
+  def configure(self, e):
+    self.width = e.width
+    self.height = e.height
+    if self.text:
+      if self.is_source:
+        self.render_source(self.text)
       else:
-        if content_length is not None:
-          length = int(content_length)
-          body_bytes = response.read(length)
-        else:
-          body_bytes = response.read()
-          close_connection(key)
+        self.render_html(self.text)
+    self.draw()
 
-      response.close()
+  def clamp_scroll(self):
+    max_scroll = max(0, self.content_height - self.height)
+    if self.scroll < 0:
+      self.scroll = 0
+    elif self.scroll > max_scroll:
+      self.scroll = max_scroll
 
-      if "close" in connection_hdr:
-        close_connection(key)
+  def update_scrollbar(self):
+    if self.content_height <= self.height:
+      self.scrollbar.pack_forget()
+      return
 
-      content_encoding = response_headers.get("content-encoding", "").lower()
-      if "gzip" in content_encoding:
-        try:
-          body_bytes = gzip.decompress(body_bytes)
-        except OSError:
-          pass
+    if not self.scrollbar.winfo_ismapped():
+      self.scrollbar.pack(side=tkinter.RIGHT, fill=tkinter.Y)
 
-      body = body_bytes.decode("utf-8", errors="replace")
+    first = self.scroll / self.content_height
+    last = (self.scroll + self.height) / self.content_height
+    first = max(0.0, min(1.0, first))
+    last = max(0.0, min(1.0, last))
+    self.scrollbar.set(first, last)
 
-      store_in_cache(cache_key, response_headers, body)
+  def on_scrollbar(self, *args):
+    if self.content_height <= self.height:
+      return
 
-      return body
+    if args[0] == "moveto":
+      fraction = float(args[1])
+      self.scroll = int(fraction * self.content_height)
+    elif args[0] == "scroll":
+      amount = int(args[1])
+      what = args[2]
+      if what == "units":
+        self.scroll += amount * SCROLL_STEP
+      elif what == "pages":
+        self.scroll += amount * self.height
 
-    except OSError as e:
-      if key is not None:
-        close_connection(key)
-      return f"[Network error] {e}"
+    self.clamp_scroll()
+    self.draw()
 
-def remove_html_comments(text):
-  return re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL)
-
-def decode_html_entities(text):
-  return html.unescape(text)
-
-def lex(body):
-  body = remove_html_comments(body)
-  decode = decode_html_entities(body)
-
-  return decode
-
-def load(browser, rtl: bool = False):
-  body = browser.request()
-
-  if browser.scheme == "view-source":
-    browser.window.draw_source(body)
-  else:
-    text = lex(body)
-    browser.window.draw(text)
 
 if __name__ == "__main__":
   rtl = False
@@ -260,19 +176,19 @@ if __name__ == "__main__":
     rtl = True
     url_arg_index = 2
 
-  window = Window()
-  window.set_direction(rtl)
+  b = Browser(rtl=rtl)
 
-  if len(sys.argv) < url_arg_index:
-    load(Browser("", window))
+  if len(sys.argv) < url_arg_index + 1:
+    b.load("")
   else:
-    load(Browser(sys.argv[url_arg_index], window))
+    b.load(sys.argv[url_arg_index])
 
   tkinter.mainloop()
 
+
 # python3 browser.py http://browser.engineering/examples/example1-simple.html
 # python3 browser.py https://browser.engineering/examples/example1-simple.html
-# python3 browser.py file:///Users/jinokseong/Documents/진옥/스터디/default.html
+# python3 browser.py file:///Users/jinokseong/Documents/진옥/스터디/browser/default.html
 # python3 browser.py "data:text/html,<h1>Hello</h1>"
 # python3 browser.py view-source:http://browser.engineering/examples/example1-simple.html
 # python3 browser.py http://browser.engineering/redirect

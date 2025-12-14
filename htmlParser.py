@@ -2,7 +2,7 @@ from urllib.request import urlopen
 import shlex
 
 from text import Text
-from tag import Tag
+from element import Element
 
 SELF_CLOSING_TAGS = [
   "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"
@@ -64,11 +64,11 @@ class HTMLParser:
       parent.children.append(node)
     elif tag in SELF_CLOSING_TAGS:
       parent = self.unfinished[-1]
-      node = Tag(tag, attributes, parent)
+      node = Element(tag, attributes, parent)
       parent.children.append(node)
     else:
       parent = self.unfinished[-1] if self.unfinished else None
-      node = Tag(tag,attributes,  parent)
+      node = Element(tag,attributes,  parent)
       self.unfinished.append(node)
   
   def get_attributes(self, text):
@@ -91,10 +91,12 @@ class HTMLParser:
   def finish(self):
     if not self.unfinished:
       self.implicit_tags(None)
+
     while len(self.unfinished) > 1:
       node = self.unfinished.pop()
       parent = self.unfinished[-1]
       parent.children.append(node)
+      
     if not self.unfinished:
       return None
     return self.unfinished.pop()

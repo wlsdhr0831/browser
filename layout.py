@@ -9,39 +9,41 @@ HSTEP, VSTEP = 13, 18
 
 BLOCK_TAGS = {"h1","h2","h3","h4","h5","h6","p","div","section","article","header","footer","blockquote","li"}
 
+
 class Layout:
-  def __init__(self, node, width, rtl):
+  def __init__(self, node, width, rtl, bold: bool = False, tag_color: str = None):
     self.display_list = []
 
     self.rtl = rtl
-    self.width = width  
+    self.width = width
     if rtl:
-      self.cursor_x =  width - HSTEP
+      self.cursor_x = width - HSTEP
     else:
       self.cursor_x = HSTEP
     self.cursor_y = VSTEP
 
     self.size = 12
-    self.weight = "normal"
+    self.weight = "bold" if bold else "normal"
     self.style = "roman"
 
     self.display_list = []
     self.line = []
 
     self.align_center = False
-  
+
     self.is_sup = False
     self.is_abbr = False
     self.abbr_size_stack = []
 
     self.is_pre = False
     self.font_family = None
+    self.tag_color = tag_color
 
     self.recurse(node)
 
     self.flush()
     self.content_height = self.cursor_y + VSTEP
-  
+
   def open_tag(self, tag):
     if tag in BLOCK_TAGS:
       self.flush()
@@ -66,11 +68,11 @@ class Layout:
     elif tag == "pre":
       self.flush()
       self.is_pre = True
-      self.font_family = "SF Mono"   
-    
+      self.font_family = "SF Mono"
+
   def close_tag(self, tag):
     if tag == "i":
-        self.style = "roman"
+      self.style = "roman"
     elif tag == "b":
       self.weight = "normal"
     elif tag == "small":
@@ -91,7 +93,7 @@ class Layout:
       self.flush()
       self.is_pre = False
       self.font_family = None
-    
+
   def recurse(self, tree):
     if isinstance(tree, Text):
       if self.is_pre:
@@ -114,11 +116,46 @@ class Layout:
     if self.is_pre:
       text = text.replace("\r\n", "\n").replace("\r", "\n")
 
+      inside_tag = False
+      in_tag_name = False
+      expect_tag_name = False
+
       for ch in text:
         if ch == "\n":
           self.flush()
           self.cursor_x = self.width - HSTEP if self.rtl else HSTEP
           continue
+
+        color = None
+        if self.tag_color:
+          if ch == "<":
+            inside_tag = True
+            in_tag_name = False
+            expect_tag_name = True
+            color = self.tag_color
+          elif ch == ">":
+            inside_tag = False
+            in_tag_name = False
+            expect_tag_name = False
+            color = self.tag_color
+          elif inside_tag:
+            if expect_tag_name:
+              if ch == "/":
+                color = self.tag_color
+                expect_tag_name = True
+              elif ch.isalpha():
+                in_tag_name = True
+                expect_tag_name = False
+                color = self.tag_color
+              else:
+                expect_tag_name = False
+                color = None
+            elif in_tag_name:
+              if ch.isalnum() or ch in "-:":
+                color = self.tag_color
+              else:
+                in_tag_name = False
+                color = None
 
         w = font.measure(ch)
 
@@ -126,16 +163,16 @@ class Layout:
           if self.cursor_x - w <= HSTEP:
             self.flush()
           x = self.cursor_x - w
-          self.line.append((x, self.cursor_y, ch, font, self.is_sup, self.is_abbr))
-          self.cursor_x -= w   
+          self.line.append((x, self.cursor_y, ch, font, self.is_sup, self.is_abbr, color))
+          self.cursor_x -= w
         else:
           if self.cursor_x + w >= self.width - HSTEP:
             self.flush()
           x = self.cursor_x
-          self.line.append((x, self.cursor_y, ch, font, self.is_sup, self.is_abbr))
+          self.line.append((x, self.cursor_y, ch, font, self.is_sup, self.is_abbr, color))
           self.cursor_x += w
-      return 
-    
+      return
+
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = text.replace("\\n", " \n ")
     text = text.replace("\n", " \n ")
@@ -156,52 +193,52 @@ class Layout:
           self.flush()
 
         x = self.cursor_x - w
-
         text_word = word.upper() if self.is_abbr else word
-        self.line.append((x, self.cursor_y, text_word, font, self.is_sup, self.is_abbr))
+        self.line.append((x, self.cursor_y, text_word, font, self.is_sup, self.is_abbr, None))
 
-        self.cursor_x -= w + font.measure(" ")   
+        self.cursor_x -= w + font.measure(" ")
       else:
         if self.cursor_x + w >= self.width - HSTEP:
           self.flush()
 
         text_word = word.upper() if self.is_abbr else word
-        self.line.append((self.cursor_x, self.cursor_y, text_word, font, self.is_sup, self.is_abbr))
+        self.line.append((self.cursor_x, self.cursor_y, text_word, font, self.is_sup, self.is_abbr, None))
 
         self.cursor_x += w + font.measure(" ")
 
   def flush(self):
-    if not self.line: return
+    if not self.line:
+      return
 
-    metrics = [font.metrics() for x, y, word, font, is_sup, is_abbr in self.line]
-    
+    metrics = [font.metrics() for x, y, word, font, is_sup, is_abbr, color in self.line]
+
     max_ascent = max([metric["ascent"] for metric in metrics])
     max_descent = max([metric["descent"] for metric in metrics])
 
     baseline = self.cursor_y + max_ascent
 
     if self.align_center:
-      total_width = sum(font.measure(word) + font.measure(" ") for x, y, word, font, is_sup, is_abbr in self.line)
+      total_width = sum(font.measure(word) + font.measure(" ") for x, y, word, font, is_sup, is_abbr, color in self.line)
       start_x = (self.width - total_width) / 2
 
       cur = start_x
-      for x, y, word, font, is_sup, is_abbr in self.line:
+      for x, y, word, font, is_sup, is_abbr, color in self.line:
         ascent = font.metrics()["ascent"]
         top_y = baseline - ascent
         if is_sup:
           top_y -= ascent * 0.4
 
-        self.display_list.append((cur, top_y, word, font))
+        self.display_list.append((cur, top_y, word, font, color))
         cur += font.measure(word) + font.measure(" ")
     else:
-      for x, y, word, font, is_sup, is_abbr in self.line:
+      for x, y, word, font, is_sup, is_abbr, color in self.line:
         ascent = font.metrics("ascent")
         top_y = baseline - ascent
 
         if is_sup:
           top_y -= ascent * 0.4
-          
-        self.display_list.append((x, top_y, word, font))
+
+        self.display_list.append((x, top_y, word, font, color))
 
     line_height = max_ascent + max_descent
     self.cursor_y = baseline + line_height * 0.25 + max_descent

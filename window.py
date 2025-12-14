@@ -59,13 +59,13 @@ class Window:
 
     self.canvas.delete("all")
 
-    for x, y, text, font in display_list:
-      if y > self.scroll + self.height: 
+    for x, y, text, font, color in display_list:
+      if y > self.scroll + self.height:
         continue
-      if y + VSTEP < self.scroll: 
+      if y + VSTEP < self.scroll:
         continue
 
-      self.canvas.create_text(x, y - self.scroll, text=text, font=font, anchor="nw",)
+      self.canvas.create_text(x, y - self.scroll, text=text, font=font, anchor="nw", fill=(color or "black"))
     
     self.update_scrollbar()
 
@@ -76,20 +76,20 @@ class Window:
     node_text = Text(source_text, root)
     root.children.append(node_text)
 
-    layout = Layout(root, self.width, self.rtl)
+    layout = Layout(root, self.width, self.rtl, bold=True, tag_color="#881280")
     display_list = layout.display_list
 
     self.content_height = max(self.height, layout.content_height)
 
     self.canvas.delete("all")
 
-    for x, y, text, font in display_list:
+    for x, y, text, font, color in display_list:
       if y > self.scroll + self.height:
         continue
       if y + VSTEP < self.scroll:
         continue
 
-      self.canvas.create_text(x, y - self.scroll, text=text, font=font, anchor="nw")
+      self.canvas.create_text(x, y - self.scroll, text=text, font=font, anchor="nw", fill=(color or "black"))
 
     self.update_scrollbar()
 

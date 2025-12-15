@@ -58,10 +58,16 @@ class HTMLParser:
     self.implicit_tags(tag)
 
     if tag.startswith("/"):
-      if len(self.unfinished) == 1: return
-      node = self.unfinished.pop()
-      parent = self.unfinished[-1]
-      parent.children.append(node)
+      closing = tag[1:]
+      i = len(self.unfinished) - 1
+      while i > 0 and self.unfinished[i].tag != closing:
+        i -= 1
+      if i == 0:
+        return  
+      while len(self.unfinished) - 1 >= i:
+        node = self.unfinished.pop()
+        parent = self.unfinished[-1]
+        parent.children.append(node)
     elif tag in SELF_CLOSING_TAGS:
       parent = self.unfinished[-1]
       node = Element(tag, attributes, parent)
@@ -105,13 +111,18 @@ class HTMLParser:
     while True:
       open_tags = [node.tag for node in self.unfinished]
 
+      if tag is None and ("head" in open_tags) and ("body" not in open_tags):
+        break
+      
       if open_tags == [] and tag != "html":
         self.add_tag("html")
       elif open_tags == ["html"] and tag not in ["head", "body", "/html"]:
         if tag in HEAD_TAGS:
           self.add_tag("head")
         else:
-          self.add_tag('body')
+          self.add_tag("body")
+      elif open_tags == ["html", "head"] and tag == "body":
+        self.add_tag("/head")
       elif ("head" in open_tags) and ("body" not in open_tags) and tag not in ["/head"] + HEAD_TAGS:
         self.add_tag("/head")
       else:

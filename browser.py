@@ -185,16 +185,3 @@ if __name__ == "__main__":
 
   tkinter.mainloop()
 
-
-# python3 browser.py http://browser.engineering/examples/example1-simple.html
-# python3 browser.py https://browser.engineering/examples/example1-simple.html
-# python3 browser.py file:///Users/jinokseong/Documents/진옥/스터디/browser/default.html
-# python3 browser.py "data:text/html,<h1>Hello</h1>"
-# python3 browser.py view-source:http://browser.engineering/examples/example1-simple.html
-# python3 browser.py http://browser.engineering/redirect
-# python3 browser.py http://browser.engineering/redirect3
-# /Library/Frameworks/Python.framework/Versions/3.14/bin/python3 browser.py view-source:file:///Users/jinokseong/Documents/진옥/스터디/browser/default.html
-# /Library/Frameworks/Python.framework/Versions/3.14/bin/python3 browser.py file:///Users/jinokseong/Documents/진옥/스터디/browser/default.html
-# /Library/Frameworks/Python.framework/Versions/3.14/bin/python3 browser.py http://browser.engineering/examples/xiyouji.html
-# /Library/Frameworks/Python.framework/Versions/3.14/bin/python3 browser.py --rtl http://browser.engineering/examples/example2-rtl.html
-# /Library/Frameworks/Python.framework/Versions/3.14/bin/python3 browser.py http://browser.engineering/index.html

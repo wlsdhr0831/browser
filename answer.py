@@ -1075,6 +1075,22 @@ class Tab:
             self.focus.attributes["value"] += char
             self.render()
 
+    def enter(self):
+        if self.focus:
+            elt = self.focus
+
+            while elt:
+                if isinstance(elt, Element) and elt.tag == "form" and "action" in elt.attributes:
+                    return self.submit_form(elt)
+                elt = elt.parent
+    
+    def blur(self):
+        if self.focus:
+            self.focus.attributes["value"] = ""
+            self.focus.is_focused = False
+            self.focus = None
+            self.render()
+
     def __repr__(self):
         return "Tab(history={})".format(self.history)
 
@@ -1119,6 +1135,7 @@ class Browser:
         if e.y < self.chrome.bottom:
             self.focus = None
             self.chrome.click(e.x, e.y)
+            self.active_tab.blur()
         else:
             self.focus = "content"
             self.chrome.blur()
@@ -1135,9 +1152,11 @@ class Browser:
             self.active_tab.keypress(e.char)
             self.draw()
 
-
     def handle_enter(self, e):
-        self.chrome.enter()
+        if self.chrome.keypress(e.char):
+            self.chrome.enter()
+        elif self.focus == "content":
+            self.active_tab.enter()
         self.draw()
 
     def handle_backspace(self, e):

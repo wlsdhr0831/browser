@@ -1,7 +1,3 @@
-# browser.py
-# Web Browser Engineering Chapter 1–7
-# Full UI: Tabs, Address Bar, Click Navigation
-
 import socket, ssl, sys
 import tkinter, tkinter.font
 
@@ -171,6 +167,11 @@ def cascade_priority(rule):
     selector, body = rule
     return selector.priority
 
+def print_tree(node, indent=0):
+    print(" " * indent + node)
+    for child in node.children:
+        print_tree(child, indent + 2)
+
 def paint_tree(layout_object, display_list):
     display_list.extend(layout_object.paint())
 
@@ -251,32 +252,32 @@ class Chrome:
         self.browser = browser
         self.focus = None
         self.address_bar = ""
+        self.cursor_idx = 0
 
         self.font = get_font(20, "normal", "roman")
         self.font_height = self.font.metrics("linespace")
 
         self.padding = 5
         self.tabbar_top = 0
-        self.tabbar_bottom = self.font_height + 2*self.padding
+        self.tabbar_bottom = self.font_height + 2 * self.padding
 
-        plus_width = self.font.measure("+") + 2*self.padding
+        plus_width = self.font.measure("+") + 2 * self.padding
         self.newtab_rect = Rect(
            self.padding, self.padding,
            self.padding + plus_width,
            self.padding + self.font_height)
 
         self.urlbar_top = self.tabbar_bottom
-        self.urlbar_bottom = self.urlbar_top + \
-            self.font_height + 2*self.padding
+        self.urlbar_bottom = self.urlbar_top + self.font_height + 2 * self.padding
 
-        back_width = self.font.measure("<") + 2*self.padding
+        back_width = self.font.measure("<") + 2 * self.padding
         self.back_rect = Rect(
             self.padding,
             self.urlbar_top + self.padding,
             self.padding + back_width,
             self.urlbar_bottom - self.padding)
         
-        forward_width = self.font.measure(">") + 2*self.padding
+        forward_width = self.font.measure(">") + 2 * self.padding
         self.forward_rect = Rect(
             self.back_rect.right + self.padding,
             self.urlbar_top + self.padding,
@@ -293,7 +294,7 @@ class Chrome:
 
     def tab_rect(self, i):
         tabs_start = self.newtab_rect.right + self.padding
-        tab_width = self.font.measure("Tab X") + 2*self.padding
+        tab_width = self.font.measure("Tab X") + 2 * self.padding
         return Rect(
             tabs_start + tab_width * i, self.tabbar_top,
             tabs_start + tab_width * (i + 1), self.tabbar_bottom)
@@ -351,7 +352,7 @@ class Chrome:
                 self.address_rect.left + self.padding,
                 self.address_rect.top,
                 self.address_bar, self.font, "black"))
-            w = self.font.measure(self.address_bar)
+            w = self.font.measure(self.address_bar[:self.cursor_idx])
             cmds.append(DrawLine(
                 self.address_rect.left + self.padding + w,
                 self.address_rect.top,
@@ -368,7 +369,6 @@ class Chrome:
         return cmds
 
     def click(self, x, y):
-        self.focus = None
         if self.newtab_rect.contains_point(x, y):
             self.browser.new_tab(URL("http://browser.engineering/index.html"))
         elif self.back_rect.contains_point(x, y):
@@ -377,25 +377,36 @@ class Chrome:
             self.browser.active_tab.go_forward()
         elif self.address_rect.contains_point(x, y):
             self.focus = "address bar"
-            self.address_bar = ""
+            self.address_bar = self.browser.active_tab.url.original_url
+            self.cursor_idx = len(self.address_bar)
         else:
             for i, tab in enumerate(self.browser.tabs):
                 if self.tab_rect(i).contains_point(x, y):
                     self.browser.active_tab = tab
                     break
 
-    def keypress(self, char):
-        if self.focus == "address bar":
-            self.address_bar += char
 
     def enter(self):
         if self.focus == "address bar":
             self.browser.active_tab.load(URL(self.address_bar))
             self.focus = None
 
-    def backspace(self):
+    def keypress(self, char):
         if self.focus == "address bar":
-            self.address_bar = self.address_bar[:-1]
+            self.address_bar = self.address_bar[:self.cursor_idx] + char + self.address_bar[self.cursor_idx:]
+            self.cursor_idx = min(self.cursor_idx + 1, len(self.address_bar))
+
+
+    def backspace(self):
+        if self.focus == "address bar" and len(self.address_bar):
+            self.address_bar  = self.address_bar[:self.cursor_idx - 1] + self.address_bar[self.cursor_idx:]
+            self.cursor_idx = max(self.cursor_idx - 1, 0)
+        
+    def arrow(self, direction):
+        if direction == "Left":
+            self.cursor_idx = max(self.cursor_idx - 1, 0)
+        else:
+            self.cursor_idx = min(self.cursor_idx + 1, len(self.address_bar))
 
 
 
@@ -408,6 +419,9 @@ class URL:
     def __init__(self, url):
         if "://" not in url:
             url = "http://google.com/search?q=" + url
+
+        self.original_url = url
+
         self.scheme, url = url.split("://", 1)
         if "/" not in url:
             url += "/"
@@ -473,58 +487,102 @@ class Element:
 ########################################################################
 
 class HTMLParser:
-    SELF_CLOSING = ["br", "img", "meta", "link", "input", "hr"]
+    SELF_CLOSING_TAGS = ["br", "img", "meta", "link", "input", "hr"]
+    
+    HEAD_TAGS = ["base", "basefont", "bgsound", "noscript", "link", "meta", "title", "script", "style"]
 
     def __init__(self, body):
         self.body = body
         self.stack = []
 
+    def get_attributes(self, text):
+        parts = text.split()
+        tag = parts[0].casefold()
+        attributes = {}
+        for attrpair in parts[1:]:
+            if "=" in attrpair:
+                key, value = attrpair.split("=", 1)
+                if len(value) > 2 and value[0] in ["'", "\""]:
+                    value = value[1:-1]
+                attributes[key.casefold()] = value
+            else:
+                attributes[attrpair.casefold()] = ""
+        return tag, attributes
+    
+    def implicit_tags(self, tag):
+        while True:
+            open_tags = [node.tag for node in self.stack]
+
+            if open_tags == [] and tag != "html":
+                self.add_tag("html")
+            elif open_tags == ["html"] and tag not in ["head", "body", "/html"]:
+                if tag in self.HEAD_TAGS:
+                    self.add_tag("head")
+                else:
+                    self.add_tag("body")
+            elif open_tags == ["html", "head"] and tag not in ["/head"] + self.HEAD_TAGS:
+                self.add_tag("/head")
+            else:
+                break
+
     def parse(self):
-        buf = ""
+        text = ""
         in_tag = False
+
         for c in self.body:
             if c == "<":
                 in_tag = True
-                if buf:
-                    self.add_text(buf)
-                buf = ""
+                if text:
+                    self.add_text(text)
+                text = ""
             elif c == ">":
                 in_tag = False
-                self.add_tag(buf)
-                buf = ""
+                self.add_tag(text)
+                text = ""
             else:
-                buf += c
-        if buf:
-            self.add_text(buf)
-        while len(self.stack) > 1:
-            node = self.stack.pop()
-            self.stack[-1].children.append(node)
-        return self.stack[0]
+                text += c
+        if not in_tag and text:
+            self.add_text(text)
+
+        return self.finish()
 
     def add_text(self, text):
         if text.isspace():
             return
+        self.implicit_tags(None)
         parent = self.stack[-1]
         parent.children.append(Text(text, parent))
 
     def add_tag(self, tag):
-        parts = tag.split()
-        name = parts[0].lower()
-        attrs = {}
-        for p in parts[1:]:
-            if "=" in p:
-                k, v = p.split("=", 1)
-                attrs[k] = v.strip("\"'")
-        if name.startswith("/"):
+        tag, attributes = self.get_attributes(tag)
+        
+        if tag.startswith("!"): return
+        self.implicit_tags(tag)
+
+        if tag.startswith("!"): return
+        elif tag.startswith("/"): 
+            if len(self.stack) == 1: return
             node = self.stack.pop()
-            self.stack[-1].children.append(node)
+            parent = self.stack[-1]
+            parent.children.append(node)
+        elif tag in self.SELF_CLOSING_TAGS:
+            parent = self.stack[-1]
+            node = Element(tag, attributes, parent)
+            parent.children.append(node)
         else:
             parent = self.stack[-1] if self.stack else None
-            node = Element(name, attrs, parent)
-            if name in self.SELF_CLOSING:
-                parent.children.append(node)
-            else:
-                self.stack.append(node)
+            node = Element(tag, attributes, parent)
+            self.stack.append(node)
+
+    def finish(self):
+        if not self.stack:
+            self.implicit_tags(None)
+
+        while len(self.stack) > 1:
+            node = self.stack.pop()
+            self.stack[-1].children.append(node)
+
+        return self.stack.pop()
 
 ########################################################################
 # Layout / Paint
@@ -551,10 +609,6 @@ class LineLayout:
         self.parent = parent
         self.previous = previous
         self.children = []
-        self.x = None
-        self.y = None
-        self.width = None
-        self.height = None
 
     def layout(self):
         self.width = self.parent.width
@@ -595,11 +649,6 @@ class TextLayout:
         self.children = []
         self.parent = parent
         self.previous = previous
-        self.x = None
-        self.y = None
-        self.width = None
-        self.height = None
-        self.font = None
 
     def layout(self):
         weight = self.node.style["font-weight"]
@@ -638,6 +687,13 @@ class BlockLayout:
         self.y = None
         self.width = None
         self.height = None
+
+    def layout_intermdeiate(self):
+        previous = None
+        for child in self.node.children:
+            next = BlockLayout(child, self, previous)
+            self.children.append(next)
+            previous = next
 
     def layout(self):
         self.width = self.parent.width
@@ -699,15 +755,19 @@ class BlockLayout:
         if style == "normal": style = "roman"
         size = int(float(node.style["font-size"][:-2]) * .75)
         font = get_font(size, weight, style)
+        color = node.style["color"]
 
         w = font.measure(word)
-        if self.cursor_x + w > self.width:
-            self.new_line()
+
+        self.cursor_x += w + font.measure(" ")
+
         line = self.children[-1]
         previous_word = line.children[-1] if line.children else None
         text = TextLayout(node, word, line, previous_word)
         line.children.append(text)
-        self.cursor_x += w + font.measure(" ")
+
+        if self.cursor_x + w > self.width:
+            self.new_line()
 
     def self_rect(self):
         return Rect(self.x, self.y,
@@ -749,14 +809,18 @@ class DocumentLayout:
     def __init__(self, node):
         self.node = node
         self.parent = None
-        self.previous = None
         self.children = []
+
+        self.x = None
+        self.y = None
+        self.width = None
+        self.height = None
 
     def layout(self):
         child = BlockLayout(self.node, self, None)
         self.children.append(child)
 
-        self.width = WIDTH - 2*HSTEP
+        self.width = WIDTH - 2 * HSTEP
         self.x = HSTEP
         self.y = VSTEP
         child.layout()
@@ -774,19 +838,17 @@ class DocumentLayout:
 
 class Tab:
     def __init__(self, tab_height):
+        self.scroll = 0
         self.url = None
         self.history = []
         self.future = []
         self.tab_height = tab_height
 
     def load(self, url):
-        if self.url:
-            self.future = []
-
-        body = url.request()
-        self.scroll = 0
         self.url = url
         self.history.append(url)
+        self.future = []
+        body = url.request()
         self.nodes = HTMLParser(body).parse()
 
         rules = DEFAULT_STYLE_SHEET.copy()
@@ -796,12 +858,14 @@ class Tab:
                  and node.tag == "link"
                  and node.attributes.get("rel") == "stylesheet"
                  and "href" in node.attributes]
+        
         for link in links:
             try:
                 body = url.resolve(link).request()
             except:
                 continue
             rules.extend(CSSParser(body).parse())
+
         style(self.nodes, sorted(rules, key=cascade_priority))
 
         self.document = DocumentLayout(self.nodes)
@@ -813,22 +877,26 @@ class Tab:
         for cmd in self.display_list:
             if cmd.rect.top > self.scroll + self.tab_height:
                 continue
-            if cmd.rect.bottom < self.scroll: continue
+            if cmd.rect.bottom < self.scroll: 
+                continue
             cmd.execute(self.scroll - offset, canvas)
+
+    def scrollup(self):
+        self.scroll = max(self.scroll - SCROLL_STEP, 0)
 
     def scrolldown(self):
         max_y = max(
-            self.document.height + 2*VSTEP - self.tab_height, 0)
+            self.document.height + 2 * VSTEP - self.tab_height, 0)
         self.scroll = min(self.scroll + SCROLL_STEP, max_y)
 
     def click(self, x, y):
         y += self.scroll
         objs = [obj for obj in tree_to_list(self.document, [])
-            if hasattr(obj, "node")
-            and obj.x <= x < obj.x + obj.width
-            and obj.y <= y < obj.y + obj.height]
+            if obj.x <= x < obj.x + obj.width and obj.y <= y < obj.y + obj.height]
+        
         if not objs: return
         elt = objs[-1].node
+
         while elt:
             if isinstance(elt, Text):
                 pass
@@ -866,16 +934,23 @@ class Browser:
         )
         self.canvas.pack()
 
+        self.window.bind("<Up>", self.handle_up)
         self.window.bind("<Down>", self.handle_down)
         self.window.bind("<Button-1>", self.handle_click)
         self.window.bind("<Button-2>", self.handle_click)
         self.window.bind("<Key>", self.handle_key)
         self.window.bind("<Return>", self.handle_enter)
         self.window.bind("<BackSpace>", self.handle_backspace)
+        self.window.bind("<Left>", self.handle_left)
+        self.window.bind("<Right>", self.handle_right)
 
         self.tabs = []
         self.active_tab = None
         self.chrome = Chrome(self)
+
+    def handle_up(self, e):
+        self.active_tab.scrollup()
+        self.draw()
 
     def handle_down(self, e):
         self.active_tab.scrolldown()
@@ -901,6 +976,14 @@ class Browser:
 
     def handle_backspace(self, e):
         self.chrome.backspace()
+        self.draw()
+
+    def handle_left(self, e):
+        self.chrome.arrow("Left")
+        self.draw()
+
+    def handle_right(self, e):
+        self.chrome.arrow("Right")
         self.draw()
 
     def new_tab(self, url):

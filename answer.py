@@ -1,7 +1,7 @@
 import socket, ssl, sys
 import tkinter, tkinter.font
 
-import urllib
+import urllib.parse
 
 BLOCK_ELEMENTS = [
     "html", "body", "article", "section", "nav", "aside",
@@ -448,7 +448,7 @@ class URL:
                 s, server_hostname=self.host)
             
         method = "POST" if payload else "GET"
-        request = f"{method} {self.path} HTTP/1.0\r\nHost: {self.host}\r\n\r\n"
+        request = "{} {} HTTP/1.0\r\n".format(method, self.path)
 
         if payload:
             length = len(payload.encode("utf8"))
@@ -461,7 +461,7 @@ class URL:
         response = s.makefile("r", encoding="utf8", newline="\r\n")
     
         statusline = response.readline()
-        version, status, explanation = statusline.split(" ", 2)
+        # version, status, explanation = statusline.split(" ", 2)
     
         response_headers = {}
         while True:
@@ -738,6 +738,10 @@ class InputLayout:
 
         self.height = self.font.metrics("linespace")
 
+    def self_rect(self):
+        return Rect(self.x, self.y,
+            self.x + self.width, self.y + self.height)
+    
     def paint(self):
         cmds = []
         bgcolor = self.node.style.get("background-color","transparent")

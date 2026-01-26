@@ -4,7 +4,11 @@ document = {
     querySelectorAll: function (s) {
         var handles = call_python("querySelectorAll", s);
         return handles.map(function (h) { return new Node(h) });
-    }
+    },
+    createElement: function (tag) {
+        var handle = call_python("createElement", tag);
+        return new Node(handle);
+    },
 }
 
 function Node(handle) { this.handle = handle; }
@@ -12,6 +16,18 @@ function Node(handle) { this.handle = handle; }
 Node.prototype.getAttribute = function (attr) {
     return call_python("getAttribute", this.handle, attr);
 }
+Node.prototype.removeChild = function (child) {
+    call_python("removeChild", this.handle, child.handle);
+    return child;
+}
+Object.defineProperty(Node.prototype, "children", {
+    get: function () {
+        var handles = call_python("children", this.handle);
+        return handles.map(function (h) {
+            return new Node(h);
+        });
+    }
+});
 
 LISTENERS = {}
 

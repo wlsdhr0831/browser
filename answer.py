@@ -116,9 +116,13 @@ class JSContext:
         self.interp.export_function("log", print)
         self.interp.export_function("querySelectorAll",
             self.querySelectorAll)
+        self.interp.export_function("createElement",
+            self.createElement)
         self.interp.export_function("getAttribute",
             self.getAttribute)
         self.interp.export_function("innerHTML_set", self.innerHTML_set)
+        self.interp.export_function("children", self.children)
+        self.interp.export_function("removeChild", self.removeChild)
         self.interp.evaljs(RUNTIME_JS)
 
         self.node_to_handle = {}
@@ -152,10 +156,44 @@ class JSContext:
                  if selector.matches(node)]
         return [self.get_handle(node) for node in nodes]
 
+    def createElement(self, tag):
+        elt = Element(tag, {}, None)  
+        handle = self.get_handle(elt)
+        return handle
+
     def getAttribute(self, handle, attr):
         elt = self.handle_to_node[handle]
         attr = elt.attributes.get(attr, None)
         return attr if attr else ""
+    
+    def children(self, handle):
+        elt = self.handle_to_node[handle]
+        result = []
+        for child in elt.children:
+            if child.tag is not None:  # Element node만
+                result.append(self.get_handle(child))
+        return result
+
+    def removeChild(self, parent_handle, child_handle):
+        parent = self.handle_to_node.get(parent_handle)
+        child = self.handle_to_node.get(child_handle)
+
+        if parent is None:
+            raise Exception(f"Invalid parent handle: {parent_handle}")
+        if child is None:
+            raise Exception(f"Invalid child handle: {child_handle}")
+
+        if child.parent is not parent:
+            raise Exception("removeChild: node is not a child of this parent")
+
+        try:
+            parent.children.remove(child)
+        except ValueError:
+            raise Exception("removeChild: internal DOM state corrupted")
+
+        child.parent = None
+
+        return None
 
     def innerHTML_set(self, handle, s):
         doc = HTMLParser("<html><body>" + s + "</body></html>").parse()

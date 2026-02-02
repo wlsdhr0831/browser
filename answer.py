@@ -19,6 +19,8 @@ BLOCK_ELEMENTS = [
     "legend", "details", "summary"
 ]
 
+COOKIE_JAR = {}
+
 class CSSParser:
     def __init__(self, s):
         self.s = s
@@ -127,6 +129,15 @@ class JSContext:
 
         self.node_to_handle = {}
         self.handle_to_node = {}
+
+    def XMLHttpRequest_send(self, method, url, body):
+        full_url = self.tab.url.resolve(url)
+        if not self.tab.allowed_request(full_url):
+            raise Exception("Cross-origin XHR blocked by CSP")
+        headers, out = full_url.request(self.tab.url, body)
+        if full_url.origin() != self.tab.url.origin():
+            raise Exception("Cross-origin XHR request not allowed")
+        return out
 
     def run(self, script, code):
         try:
@@ -543,7 +554,7 @@ class URL:
             self.host, p = self.host.split(":", 1)
             self.port = int(p)
 
-    def request(self, payload = None):
+    def request(self, referrer, payload = None):
         s = socket.socket()
         s.connect((self.host, self.port))
         if self.scheme == "https":
@@ -552,14 +563,23 @@ class URL:
             
         method = "POST" if payload else "GET"
         request = "{} {} HTTP/1.0\r\n".format(method, self.path)
+        request += "Host: {}\r\n".format(self.host)
+
+        if self.host in COOKIE_JAR:
+            cookie, params = COOKIE_JAR[self.host]
+            allow_cookie = True
+            if referrer and params.get("samesite", "none") == "lax":
+                if method != "GET":
+                    allow_cookie = self.host == referrer.host
+            if allow_cookie:
+                request += "Cookie: {}\r\n".format(cookie)
 
         if payload:
-            length = len(payload.encode("utf8"))
-            request += "Content-Length: {}\r\n".format(length)
-
-        request += "Host: {}\r\n".format(self.host)
+            content_length = len(payload.encode("utf8"))
+            request += "Content-Length: {}\r\n".format(content_length)
         request += "\r\n"
         if payload: request += payload
+
         s.send(request.encode("utf8"))
         response = s.makefile("r", encoding="utf8", newline="\r\n")
     
@@ -573,12 +593,26 @@ class URL:
             header, value = line.split(":", 1)
             response_headers[header.casefold()] = value.strip()
     
+        if "set-cookie" in response_headers:
+            cookie = response_headers["set-cookie"]
+            params = {}
+            if ";" in cookie:
+                cookie, rest = cookie.split(";", 1)
+                for param in rest.split(";"):
+                    if '=' in param:
+                        param, value = param.split("=", 1)
+                    else:
+                        value = "true"
+                    params[param.strip().casefold()] = value.casefold()
+            COOKIE_JAR[self.host] = (cookie, params)
+
         assert "transfer-encoding" not in response_headers
         assert "content-encoding" not in response_headers
     
         content = response.read()
         s.close()
-        return content
+
+        return response_headers, content
 
     def resolve(self, url):
         if "://" in url:
@@ -595,6 +629,9 @@ class URL:
         if (self.scheme, self.port) in [("http", 80), ("https", 443)]:
             port = ""
         return f"{self.scheme}://{self.host}{port}{self.path}"
+
+    def origin(self):
+        return self.scheme + "://" + self.host + ":" + str(self.port)
 
 ########################################################################
 # DOM
@@ -1074,10 +1111,20 @@ class Tab:
         self.focus = None
 
     def load(self, url, payload=None):
+        headers, body = url.request(self.url, payload)
+        self.scroll = 0
         self.url = url
         self.history.append(url)
         self.future = []
-        body = url.request(payload)
+
+        self.allowed_origins = None
+        if "content-security-policy" in headers:
+           csp = headers["content-security-policy"].split()
+           if len(csp) > 0 and csp[0] == "default-src":
+                self.allowed_origins = []
+                for origin in csp[1:]:
+                    self.allowed_origins.append(URL(origin).origin())
+
         self.nodes = HTMLParser(body).parse()
 
         self.rules = DEFAULT_STYLE_SHEET.copy()
@@ -1090,7 +1137,7 @@ class Tab:
 
         for link in links:
             try:
-                body = url.resolve(link).request()
+                headers, body = url.resolve(link).request(url)
             except:
                 continue
             self.rules.extend(CSSParser(body).parse())
@@ -1102,14 +1149,21 @@ class Tab:
         self.js = JSContext(self)
         for script in scripts:
             script_url = url.resolve(script)
+            if not self.allowed_request(script_url):
+                print("Blocked script", script, "due to CSP")
+                continue
             try:
-                body = script_url.request()
+                header, body = script_url.request(url)
             except:
                 continue
             self.js.run(script, body)
 
         self.render()
 
+    def allowed_request(self, url):
+        return self.allowed_origins == None or \
+            url.origin() in self.allowed_origins
+    
     def render(self):
         style(self.nodes, sorted(self.rules, key=cascade_priority))
 

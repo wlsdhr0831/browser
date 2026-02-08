@@ -104,7 +104,8 @@ def show_comments(session):
 
 LOGINS = {
     "crashoverride": "0cool",
-    "cerealkiller": "emmanuel"
+    "cerealkiller": "emmanuel",
+    "marsh": "1234"
 }
 
 def login_form(session):

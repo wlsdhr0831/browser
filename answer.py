@@ -654,7 +654,6 @@ class Chrome:
             return True
         return False
 
-
     def backspace(self):
         if self.focus == "address bar" and len(self.address_bar):
             self.address_bar  = self.address_bar[:self.cursor_idx - 1] + self.address_bar[self.cursor_idx:]
@@ -1549,14 +1548,17 @@ class Browser:
 
     def handle_backspace(self):
         self.chrome.backspace()
+        self.raster_chrome()
         self.draw()
 
     def handle_left(self):
         self.chrome.arrow("Left")
+        self.raster_chrome()
         self.draw()
 
     def handle_right(self):
         self.chrome.arrow("Right")
+        self.raster_chrome()
         self.draw()
 
     def new_tab(self, url):
@@ -1647,12 +1649,19 @@ def mainloop(browser):
                     browser.handle_enter()
                 elif event.key.keysym.sym == sdl2.SDLK_DOWN:
                     browser.handle_down()
+                elif event.key.keysym.sym == sdl2.SDLK_BACKSPACE: 
+                    browser.handle_backspace()
+                elif event.key.keysym.sym == sdl2.SDLK_LEFT:   
+                    browser.handle_left()
+                elif event.key.keysym.sym == sdl2.SDLK_RIGHT:    
+                    browser.handle_right()
             elif event.type == sdl2.SDL_TEXTINPUT:
                 browser.handle_key(event.text.text.decode('utf8'))
 
 if __name__ == "__main__":
     sdl2.SDL_Init(sdl2.SDL_INIT_EVENTS)
     browser = Browser()
+    sdl2.SDL_StartTextInput()
     browser.new_tab(URL(sys.argv[1]))
     browser.draw()
     mainloop(browser)

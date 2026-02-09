@@ -311,6 +311,51 @@ def linespace(font):
     metrics = font.getMetrics()
     return metrics.fDescent - metrics.fAscent
 
+def point_in_visual_rect(obj, x, y):
+    # 1. 기본 사각형 범위 체크 (Bounding Box Check)
+    # 이게 아니면 radius를 계산할 필요도 없이 False
+    if not (obj.x <= x < obj.x + obj.width and obj.y <= y < obj.y + obj.height):
+        return False
+
+    # 2. border-radius 값 가져오기
+    # 스타일이 없는 요소(예: 텍스트)는 안전하게 0으로 처리
+    radius = 0
+    if hasattr(obj.node, "style"):
+        radius_str = obj.node.style.get("border-radius", "0px")
+        try:
+            radius = float(radius_str[:-2])
+        except:
+            radius = 0
+
+    if radius == 0:
+        return True
+
+    # 3. 둥근 모서리 정밀 체크 (Corner Hit Testing)
+    # 계산을 위해 클릭 좌표를 요소 내부의 상대 좌표(local coordinates)로 변환
+    tx = x - obj.x
+    ty = y - obj.y
+    w = obj.width
+    h = obj.height
+
+    # (1) 왼쪽 위 모서리 (Top-Left)
+    if tx < radius and ty < radius:
+        # 원의 중심 (radius, radius)에서 클릭점까지의 거리가 반지름보다 작아야 함
+        return (tx - radius)**2 + (ty - radius)**2 <= radius**2
+
+    # (2) 오른쪽 위 모서리 (Top-Right)
+    elif tx > w - radius and ty < radius:
+        return (tx - (w - radius))**2 + (ty - radius)**2 <= radius**2
+
+    # (3) 왼쪽 아래 모서리 (Bottom-Left)
+    elif tx < radius and ty > h - radius:
+        return (tx - radius)**2 + (ty - (h - radius))**2 <= radius**2
+
+    # (4) 오른쪽 아래 모서리 (Bottom-Right)
+    elif tx > w - radius and ty > h - radius:
+        return (tx - (w - radius))**2 + (ty - (h - radius))**2 <= radius**2
+
+    # 모서리 영역이 아닌 사각형 내부 (십자가 모양 안전 영역)
+    return True
 
 def paint_visual_effects(node, cmds, rect):
     opacity = float(node.style.get("opacity", "1.0"))
@@ -1343,8 +1388,9 @@ class Tab:
     def click(self, x, y):
         self.focus = None
         y += self.scroll
+
         objs = [obj for obj in tree_to_list(self.document, [])
-            if obj.x <= x < obj.x + obj.width and obj.y <= y < obj.y + obj.height]
+                if point_in_visual_rect(obj, x, y)]
         
         if not objs: return
         elt = objs[-1].node

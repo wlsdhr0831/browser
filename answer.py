@@ -3,6 +3,9 @@ import socket, ssl, sys
 import ctypes
 import sdl2
 import skia
+import threading
+import time
+import wbetools
 
 import urllib.parse
 
@@ -10,7 +13,7 @@ import dukpy
 
 EVENT_DISPATCH_JS = "new Node(dukpy.handle).dispatchEvent(new Event(dukpy.type))"
 
-RUNTIME_JS = open("answer.js").read()
+REFRESH_RATE_SEC = .033
 
 BLOCK_ELEMENTS = [
     "html", "body", "article", "section", "nav", "aside",
@@ -22,6 +25,165 @@ BLOCK_ELEMENTS = [
 ]
 
 COOKIE_JAR = {}
+
+class MeasureTime:
+    def __init__(self):
+        if not wbetools.OUTPUT_TRACE: return
+        self.lock = threading.Lock()
+        self.file = open("browser.trace", "w")
+        self.file.write('{"traceEvents": [')
+        ts = time.time() * 1000000
+        self.file.write(
+            '{ "name": "process_name",' +
+            '"ph": "M",' +
+            '"ts": ' + str(ts) + ',' +
+            '"pid": 1, "cat": "__metadata",' +
+            '"args": {"name": "Browser"}}')
+        self.file.flush()
+
+    def time(self, name):
+        if not wbetools.OUTPUT_TRACE: return
+        ts = time.time() * 1000000
+        tid = threading.get_ident()
+        self.lock.acquire(blocking=True)
+        self.file.write(
+            ', { "ph": "B", "cat": "_",' +
+            '"name": "' + name + '",' +
+            '"ts": ' + str(ts) + ',' +
+            '"pid": 1, "tid": ' + str(tid) + '}')
+        self.file.flush()
+        self.lock.release()
+
+    def stop(self, name):
+        if not wbetools.OUTPUT_TRACE: return
+        ts = time.time() * 1000000
+        tid = threading.get_ident()
+        self.lock.acquire(blocking=True)
+        self.file.write(
+            ', { "ph": "E", "cat": "_",' +
+            '"name": "' + name + '",' +
+            '"ts": ' + str(ts) + ',' +
+            '"pid": 1, "tid": ' + str(tid) + '}')
+        self.file.flush()
+        self.lock.release()
+
+    def finish(self):
+        if not wbetools.OUTPUT_TRACE: return
+        self.lock.acquire(blocking=True)
+        for thread in threading.enumerate():
+            self.file.write(
+                ', { "ph": "M", "name": "thread_name",' +
+                '"pid": 1, "tid": ' + str(thread.ident) + ',' +
+                '"args": { "name": "' + thread.name + '"}}')
+        self.file.write(']}')
+        self.file.close()
+        self.lock.release()
+
+SETTIMEOUT_JS = "__runSetTimeout(dukpy.handle)"
+XHR_ONLOAD_JS = "__runXHROnload(dukpy.out, dukpy.handle)"
+RUNTIME_JS = open("runtime.js").read()
+
+class SingleThreadedTaskRunner:
+    def __init__(self, tab):
+        self.tab = tab
+        self.needs_quit = False
+        self.tasks = []
+
+    def schedule_task(self, callback):
+        self.tasks.append(callback)
+        self.tab.browser.needs_animation_frame = True
+
+    def run_tasks(self):
+        while self.tasks:
+            task = self.tasks.pop(0)
+            task.run()
+
+    def clear_pending_tasks(self):
+        self.tasks = []
+
+    def start_thread(self):    
+        pass
+
+    def set_needs_quit(self):
+        self.needs_quit = True
+        pass
+
+    def run(self):
+        pass
+
+class CommitData:
+    def __init__(self, url, scroll, height, display_list):
+        self.url = url
+        self.scroll = scroll
+        self.height = height
+        self.display_list = display_list
+
+class Task:
+    def __init__(self, task_code, *args):
+        self.task_code = task_code
+        self.args = args
+
+    def run(self):
+        self.task_code(*self.args)
+        self.task_code = None
+        self.args = None
+
+
+class TaskRunner:
+    def __init__(self, tab):
+        self.condition = threading.Condition()
+        self.tab = tab
+        self.tasks = []
+        self.main_thread = threading.Thread(
+            target=self.run,
+            name="Main thread",
+        )
+        self.needs_quit = False
+
+    def schedule_task(self, task):
+        self.condition.acquire(blocking=True)
+        self.tasks.append(task)
+        self.condition.notify_all()
+        self.condition.release()
+
+    def set_needs_quit(self):
+        self.condition.acquire(blocking=True)
+        self.needs_quit = True
+        self.condition.notify_all()
+        self.condition.release()
+
+    def clear_pending_tasks(self):
+        self.condition.acquire(blocking=True)
+        self.tasks.clear()
+        self.condition.release()
+
+    def start_thread(self):
+        self.main_thread.start()
+
+    def run(self):
+        while True:
+            self.condition.acquire(blocking=True)
+            needs_quit = self.needs_quit
+            self.condition.release()
+            if needs_quit:
+                self.handle_quit()
+                return
+
+            task = None
+            self.condition.acquire(blocking=True)
+            if len(self.tasks) > 0:
+                task = self.tasks.pop(0)
+            self.condition.release()
+            if task:
+                task.run()
+
+            self.condition.acquire(blocking=True)
+            if len(self.tasks) == 0 and not self.needs_quit:
+                self.condition.wait()
+            self.condition.release()
+
+    def handle_quit(self):
+        pass
 
 class CSSParser:
     def __init__(self, s):
@@ -115,6 +277,7 @@ class CSSParser:
 class JSContext:
     def __init__(self, tab):
         self.tab = tab
+        self.discarded = False
 
         self.interp = dukpy.JSInterpreter()
         self.interp.export_function("log", print)
@@ -127,19 +290,44 @@ class JSContext:
         self.interp.export_function("innerHTML_set", self.innerHTML_set)
         self.interp.export_function("children", self.children)
         self.interp.export_function("removeChild", self.removeChild)
+        self.interp.export_function("setTimeout",
+            self.setTimeout)
+        self.interp.export_function("requestAnimationFrame",
+            self.requestAnimationFrame)
+        self.tab.browser.measure.time('script-runtime')
         self.interp.evaljs(RUNTIME_JS)
+        self.tab.browser.measure.stop('script-runtime')
 
         self.node_to_handle = {}
         self.handle_to_node = {}
 
-    def XMLHttpRequest_send(self, method, url, body):
+    def dispatch_xhr_onload(self, out, handle):
+        if self.discarded: return
+        self.tab.browser.measure.time('script-xhr')
+        do_default = self.interp.evaljs(
+            XHR_ONLOAD_JS, out=out, handle=handle)
+        self.tab.browser.measure.stop('script-xhr')
+
+    def XMLHttpRequest_send(
+        self, method, url, body, isasync, handle):
         full_url = self.tab.url.resolve(url)
         if not self.tab.allowed_request(full_url):
             raise Exception("Cross-origin XHR blocked by CSP")
-        headers, out = full_url.request(self.tab.url, body)
         if full_url.origin() != self.tab.url.origin():
-            raise Exception("Cross-origin XHR request not allowed")
-        return out
+            raise Exception(
+                "Cross-origin XHR request not allowed")
+
+        def run_load():
+            headers, response = full_url.request(self.tab.url, body)
+            task = Task(self.dispatch_xhr_onload, response, handle)
+            self.tab.task_runner.schedule_task(task)
+            if not isasync:
+                return response
+
+        if not isasync:
+            return run_load()
+        else:
+            threading.Thread(target=run_load).start()
 
     def run(self, script, code):
         try:
@@ -215,7 +403,22 @@ class JSContext:
         elt.children = new_nodes
         for child in elt.children:
             child.parent = elt
-        self.tab.render()
+        self.tab.set_needs_render()
+
+    def dispatch_settimeout(self, handle):
+        if self.discarded: return
+        self.tab.browser.measure.time('script-settimeout')
+        self.interp.evaljs(SETTIMEOUT_JS, handle=handle)
+        self.tab.browser.measure.stop('script-settimeout')
+
+    def setTimeout(self, handle, time):
+        def run_callback():
+            task = Task(self.dispatch_settimeout, handle)
+            self.tab.task_runner.schedule_task(task)
+        threading.Timer(time / 1000.0, run_callback).start()
+
+    def requestAnimationFrame(self):
+        self.tab.browser.set_needs_animation_frame(self.tab)
 
 class TagSelector:
     def __init__(self, tag):
@@ -620,17 +823,13 @@ class Chrome:
     def click(self, x, y):
         self.focus = None
         if self.newtab_rect.contains(x, y):
-            self.browser.new_tab(URL("http://browser.engineering/index.html"))
+            self.browser.new_tab_internal(URL("http://browser.engineering/index.html"))
         elif self.back_rect.contains(x, y):
-            self.browser.active_tab.go_back()
-            self.browser.raster_chrome()
-            self.browser.raster_tab()
-            self.browser.draw()
+            task = Task(self.browser.active_tab.go_back)
+            self.browser.active_tab.task_runner.schedule_task(task)
         elif self.forward_rect.contains(x, y):
-            self.browser.active_tab.go_forward()
-            self.browser.raster_chrome()
-            self.browser.raster_tab()
-            self.browser.draw()
+            task = Task(self.browser.active_tab.go_forward)
+            self.browser.active_tab.task_runner.schedule_task(task)
         elif self.address_rect.contains(x, y):
             self.focus = "address bar"
             self.address_bar = self.browser.active_tab.url.original_url
@@ -638,14 +837,18 @@ class Chrome:
         else:
             for i, tab in enumerate(self.browser.tabs):
                 if self.tab_rect(i).contains(x, y):
-                    self.browser.active_tab = tab
+                    self.browser.set_active_tab(tab)
+                    active_tab = self.browser.active_tab
+                    task = Task(active_tab.set_needs_render)
+                    active_tab.task_runner.schedule_task(task)
                     break
-            self.browser.raster_tab()
 
     def enter(self):
         if self.focus == "address bar":
-            self.browser.active_tab.load(URL(self.address_bar))
+            self.browser.schedule_load(URL(self.address_bar))
             self.focus = None
+            return True
+        return False
 
     def keypress(self, char):
         if self.focus == "address bar":
@@ -658,12 +861,17 @@ class Chrome:
         if self.focus == "address bar" and len(self.address_bar):
             self.address_bar  = self.address_bar[:self.cursor_idx - 1] + self.address_bar[self.cursor_idx:]
             self.cursor_idx = max(self.cursor_idx - 1, 0)
+            return True
+        return False
         
     def arrow(self, direction):
         if direction == "Left":
             self.cursor_idx = max(self.cursor_idx - 1, 0)
-        else:
+            return True
+        elif direction == "Right":
             self.cursor_idx = min(self.cursor_idx + 1, len(self.address_bar))
+            return True
+        return False
     
     def blur(self):
         self.focus = None
@@ -1302,17 +1510,31 @@ class DocumentLayout:
 ########################################################################
 
 class Tab:
-    def __init__(self, tab_height):
+    def __init__(self, browser, tab_height):
         self.scroll = 0
         self.url = None
         self.history = []
         self.future = []
         self.tab_height = tab_height
         self.focus = None
+        self.js = None
+        self.browser = browser
+        self.loaded = False
+        self.scroll_changed_in_tab = False
+        self.needs_raf_callbacks = False
+        self.needs_render = False
+        if wbetools.USE_BROWSER_THREAD:
+            self.task_runner = TaskRunner(self)
+        else:
+            self.task_runner = SingleThreadedTaskRunner(self)
+        self.task_runner.start_thread()
 
     def load(self, url, payload=None):
         headers, body = url.request(self.url, payload)
+        self.loaded = False
         self.scroll = 0
+        self.scroll_changed_in_tab = True
+        self.task_runner.clear_pending_tasks()
         self.url = url
         self.history.append(url)
         self.future = []
@@ -1342,11 +1564,11 @@ class Tab:
                 continue
             self.rules.extend(CSSParser(body).parse())
         
+        if self.js: self.js.discarded = True
+        self.js = JSContext(self)
         scripts = [node.attributes["src"]
                    for node in tree_to_list(self.nodes, [])
                    if isinstance(node, Element) and node.tag == "script" and "src" in node.attributes]
-        
-        self.js = JSContext(self)
         for script in scripts:
             script_url = url.resolve(script)
             if not self.allowed_request(script_url):
@@ -1356,21 +1578,32 @@ class Tab:
                 header, body = script_url.request(url)
             except:
                 continue
-            self.js.run(script, body)
-
-        self.render()
+            task = Task(self.js.run, script_url, body)
+            self.task_runner.schedule_task(task)
+        self.set_needs_render()
+        self.loaded = True
 
     def allowed_request(self, url):
         return self.allowed_origins == None or \
             url.origin() in self.allowed_origins
     
     def render(self):
+        if not self.needs_render: return
+        self.browser.measure.time('render')
         style(self.nodes, sorted(self.rules, key=cascade_priority))
 
         self.document = DocumentLayout(self.nodes)
         self.document.layout()
         self.display_list = []
         paint_tree(self.document, self.display_list)
+        self.needs_render = False
+
+        clamped_scroll = self.clamp_scroll(self.scroll)
+        if clamped_scroll != self.scroll:
+            self.scroll_changed_in_tab = True
+        self.scroll = clamped_scroll
+
+        self.browser.measure.stop('render')
 
     def raster(self, canvas):
         for cmd in self.display_list:
@@ -1384,7 +1617,37 @@ class Tab:
             self.document.height + 2 * VSTEP - self.tab_height, 0)
         self.scroll = min(self.scroll + SCROLL_STEP, max_y)
 
+    def set_needs_render(self):
+        self.needs_render = True
+        self.browser.set_needs_animation_frame(self)
+
+    def clamp_scroll(self, scroll):
+        height = math.ceil(self.document.height + 2*VSTEP)
+        maxscroll = height - self.tab_height
+        return max(0, min(scroll, maxscroll))
+    
+    def run_animation_frame(self, scroll):
+        if not self.scroll_changed_in_tab:
+            self.scroll = scroll
+        self.browser.measure.time('script-runRAFHandlers')
+        self.js.interp.evaljs("__runRAFHandlers()")
+        self.browser.measure.stop('script-runRAFHandlers')
+
+        self.render()
+
+        scroll = None
+        if self.scroll_changed_in_tab:
+            scroll = self.scroll
+        document_height = math.ceil(self.document.height + 2*VSTEP)
+        commit_data = CommitData(
+            self.url, scroll, document_height, \
+            self.display_list)
+        self.display_list = None
+        self.browser.commit(self, commit_data)
+        self.scroll_changed_in_tab = False
+
     def click(self, x, y):
+        self.render()
         self.focus = None
         y += self.scroll
 
@@ -1486,6 +1749,16 @@ class Browser:
             WIDTH, math.ceil(self.chrome.bottom))
         self.tab_surface = None
 
+        self.tabs = []
+        self.active_tab = None
+        self.focus = None
+        self.address_bar = ""
+        self.lock = threading.Lock()
+        self.active_tab_url = None
+        self.active_tab_scroll = 0
+
+        self.measure = MeasureTime()
+        threading.current_thread().name = "Browser thread"
 
         if sdl2.SDL_BYTEORDER == sdl2.SDL_BIG_ENDIAN:
             self.RED_MASK = 0xff000000
@@ -1498,78 +1771,134 @@ class Browser:
             self.BLUE_MASK = 0x00ff0000
             self.ALPHA_MASK = 0xff000000
 
-        self.tabs = []
-        self.active_tab = None
-        self.focus = None
+        self.animation_timer = None
 
+        self.needs_animation_frame = False
+        self.needs_raster_and_draw = False
+
+        self.active_tab_height = 0
+        self.active_tab_display_list = None
+
+    def render(self):
+        assert not wbetools.USE_BROWSER_THREAD
+        self.active_tab.task_runner.run_tasks()
+        if self.active_tab.loaded:
+            self.active_tab.run_animation_frame(self.active_tab_scroll)
+
+    def clamp_scroll(self, scroll):
+        height = self.active_tab_height
+        maxscroll = height - (HEIGHT - self.chrome.bottom)
+        return max(0, min(scroll, maxscroll))
+    
+    def set_active_tab(self, tab):
+        self.active_tab = tab
+        self.active_tab_scroll = 0
+        self.active_tab_url = None
+        self.needs_animation_frame = True
+        self.animation_timer = None
+    
     def handle_up(self):
-        self.active_tab.scrollup()
-        self.draw()
+        self.lock.acquire(blocking=True)
+        if self.chrome.scrollup():
+            self.set_needs_raster_and_draw()
+        self.lock.release()
 
     def handle_down(self):
-        self.active_tab.scrolldown()
-        self.draw()
+        self.lock.acquire(blocking=True)
+        if not self.active_tab_height:
+            self.lock.release()
+            return
+        self.active_tab_scroll = self.clamp_scroll(
+            self.active_tab_scroll + SCROLL_STEP)
+        self.set_needs_raster_and_draw()
+        self.needs_animation_frame = True
+        self.lock.release()
 
     def handle_click(self, e):
+        self.lock.acquire(blocking=True)
         if e.y < self.chrome.bottom:
             self.focus = None
             self.chrome.click(e.x, e.y)
-            self.raster_chrome()
+            self.set_needs_raster_and_draw()
         else:
             if self.focus != "content":
                 self.focus = "content"
                 self.chrome.blur()
-                self.raster_chrome()
-            url = self.active_tab.url
+                self.set_needs_raster_and_draw()
+            self.chrome.blur()
             tab_y = e.y - self.chrome.bottom
-            self.active_tab.click(e.x, tab_y)
-            if self.active_tab.url != url:
-                self.raster_chrome()
-            self.raster_tab()
-        self.draw()
+            task = Task(self.active_tab.click, e.x, tab_y)
+            self.active_tab.task_runner.schedule_task(task)
+        self.lock.release()
+
+    def schedule_load(self, url, body=None):
+        self.active_tab.task_runner.clear_pending_tasks()
+        task = Task(self.active_tab.load, url, body)
+        self.active_tab.task_runner.schedule_task(task)
 
     def handle_key(self, char):
+        self.lock.acquire(blocking=True)
         if not (0x20 <= ord(char) < 0x7f): return
-        if self.chrome.focus:
-            self.chrome.keypress(char)
-            self.raster_chrome()
-            self.draw()
+        if self.chrome.keypress(char):
+            self.set_needs_raster_and_draw()
         elif self.focus == "content":
-            self.active_tab.keypress(char)
-            self.raster_tab()
-            self.draw()
+            task = Task(self.active_tab.keypress, char)
+            self.active_tab.task_runner.schedule_task(task)
+        self.lock.release()
 
     def handle_enter(self):
-        if self.chrome.focus:
-            self.chrome.enter()
-            self.raster_tab()
-            self.raster_chrome()
-            self.draw()
+        self.lock.acquire(blocking=True)
+        if self.chrome.enter():
+            self.set_needs_raster_and_draw()
+        self.lock.release()
 
     def handle_backspace(self):
-        self.chrome.backspace()
-        self.raster_chrome()
-        self.draw()
+        self.lock.acquire(blocking=True)
+        if self.chrome.backspace():
+            self.set_needs_raster_and_draw()
+        self.lock.release()
 
     def handle_left(self):
-        self.chrome.arrow("Left")
-        self.raster_chrome()
-        self.draw()
+        self.lock.acquire(blocking=True)
+        if self.chrome.arrow("Left"):
+            self.set_needs_raster_and_draw()
+        self.lock.release()
 
     def handle_right(self):
-        self.chrome.arrow("Right")
-        self.raster_chrome()
-        self.draw()
+        self.lock.acquire(blocking=True)
+        if self.chrome.arrow("Right"):
+            self.set_needs_raster_and_draw()
+        self.lock.release()
 
     def new_tab(self, url):
-        new_tab = Tab(HEIGHT - self.chrome.bottom)
-        new_tab.load(url)
-        self.tabs.append(new_tab)
-        self.active_tab = new_tab
-        self.raster_chrome()
-        self.raster_tab()
-        self.draw()
+        self.lock.acquire(blocking=True)
+        self.new_tab_internal(url)
+        self.lock.release()
 
+    def new_tab_internal(self, url):
+        new_tab = Tab(self, HEIGHT - self.chrome.bottom)
+        self.tabs.append(new_tab)
+        self.set_active_tab(new_tab)
+        self.schedule_load(url)
+
+    def commit(self, tab, data):
+        self.lock.acquire(blocking=True)
+        if tab == self.active_tab:
+            self.active_tab_url = data.url
+            if data.scroll != None:
+                self.active_tab_scroll = data.scroll
+            self.active_tab_height = data.height
+            if data.display_list:
+                self.active_tab_display_list = data.display_list
+            self.animation_timer = None
+            self.set_needs_raster_and_draw()
+        self.lock.release()
+
+    def set_needs_animation_frame(self, tab):
+        self.lock.acquire(blocking=True)
+        if tab == self.active_tab:
+            self.needs_animation_frame = True
+        self.lock.release()
 
     def raster_tab(self):
         tab_height = math.ceil(
@@ -1592,6 +1921,39 @@ class Browser:
         for cmd in self.chrome.paint():
             cmd.execute(canvas)
     
+    def set_needs_raster_and_draw(self):
+        self.needs_raster_and_draw = True
+
+    def raster_and_draw(self):
+        self.lock.acquire(blocking=True)
+        if not self.needs_raster_and_draw:
+            self.lock.release()
+            return
+        self.measure.time('raster/draw')
+        self.raster_chrome()
+        self.raster_tab()
+        self.draw()
+        self.measure.stop('raster/draw')
+        self.needs_raster_and_draw = False
+        self.lock.release()
+
+    def schedule_animation_frame(self):
+        def callback():
+            self.lock.acquire(blocking=True)
+            scroll = self.active_tab_scroll
+            active_tab = self.active_tab
+            self.needs_animation_frame = False
+            self.lock.release()
+            task = Task(self.active_tab.run_animation_frame, scroll)
+            active_tab.task_runner.schedule_task(task)
+        self.lock.acquire(blocking=True)
+        if self.needs_animation_frame and not self.animation_timer:
+            if wbetools.USE_BROWSER_THREAD:
+                self.animation_timer = \
+                    threading.Timer(REFRESH_RATE_SEC, callback)
+                self.animation_timer.start()
+        self.lock.release()
+
     def draw(self):
         canvas = self.root_surface.getCanvas()
         canvas.clear(skia.ColorWHITE)
@@ -1628,6 +1990,9 @@ class Browser:
         sdl2.SDL_UpdateWindowSurface(self.sdl_window)
     
     def handle_quit(self):
+        self.measure.finish()
+        for tab in self.tabs:
+            tab.task_runner.set_needs_quit()
         sdl2.SDL_DestroyWindow(self.sdl_window)
 
 ########################################################################
@@ -1657,11 +2022,19 @@ def mainloop(browser):
                     browser.handle_right()
             elif event.type == sdl2.SDL_TEXTINPUT:
                 browser.handle_key(event.text.text.decode('utf8'))
+        if not wbetools.USE_BROWSER_THREAD:
+            if browser.active_tab.task_runner.needs_quit:
+                break
+            if browser.needs_animation_frame:
+                browser.needs_animation_frame = False
+                browser.render()
+        browser.raster_and_draw()
+        browser.schedule_animation_frame()
 
 if __name__ == "__main__":
+    wbetools.parse_flags()
     sdl2.SDL_Init(sdl2.SDL_INIT_EVENTS)
     browser = Browser()
-    sdl2.SDL_StartTextInput()
     browser.new_tab(URL(sys.argv[1]))
-    browser.draw()
+    browser.raster_and_draw()
     mainloop(browser)

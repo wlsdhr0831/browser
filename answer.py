@@ -294,6 +294,8 @@ class JSContext:
             self.setTimeout)
         self.interp.export_function("requestAnimationFrame",
             self.requestAnimationFrame)
+        self.interp.export_function("XMLHttpRequest_send", self.XMLHttpRequest_send)
+        
         self.tab.browser.measure.time('script-runtime')
         self.interp.evaljs(RUNTIME_JS)
         self.tab.browser.measure.stop('script-runtime')
@@ -1277,6 +1279,9 @@ class InputLayout:
                 cx, self.y, cx, self.y + self.height, "black", 1))
             
         return cmds
+
+    def paint_effects(self, cmds):
+        return cmds
     
     def should_paint(self):
         return True
@@ -1651,7 +1656,8 @@ class Tab:
                     self.focus.is_focused = False
                 self.focus = elt
                 elt.is_focused = True
-                return self.render()
+                self.set_needs_render()
+                return
             elif elt.tag == "button":
                 if self.js.dispatch_event("click", elt): return
                 while elt:
@@ -1688,7 +1694,7 @@ class Tab:
         if self.focus:
             if self.js.dispatch_event("keydown", self.focus): return
             self.focus.attributes["value"] += char
-            self.render()
+            self.set_needs_render()
 
     def enter(self):
         if self.focus:

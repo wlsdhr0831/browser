@@ -19,12 +19,15 @@ python3 browser.py http://browser.engineering/redirect3
 /Library/Frameworks/Python.framework/Versions/3.14/bin/python3 answer.py http://browser.engineering/index.html
 python answer.py http://localhost:8000
 
-
 https://github.com/browserengineering/book/blob/main/src/lab7.py
 
 
-/Library/Frameworks/Python.framework/Versions/3.14/bin/python3 server.py
+# 현재까지의 코드 실행 방법
 
+source skia-env/bin/activate
+
+/Library/Frameworks/Python.framework/Versions/3.14/bin/python3 server.py
+/Library/Frameworks/Python.framework/Versions/3.14/bin/python3 answer.py http://localhost:8000
 
 python3 server.py
-python3 browser.py http://localhost:8000
+python3 answer.py http://localhost:8000

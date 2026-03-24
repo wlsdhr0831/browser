@@ -635,26 +635,6 @@ class DrawLine:
         self.color = color
         self.thickness = thickness
 
-    # def __init__(self, x1, y1, x2, y2, color, thickness):
-    #     self.x1 = float(x1)
-    #     self.y1 = float(y1)
-    #     self.x2 = float(x2)
-    #     self.y2 = float(y2)
-    #     self.color = color
-    #     self.thickness = thickness
-
-    #     l = min(self.x1, self.x2)
-    #     r = max(self.x1, self.x2)
-    #     t = min(self.y1, self.y2)
-    #     b = max(self.y1, self.y2)
-
-    #     # 최소 두께 확보 (중요)
-    #     if l == r: r += thickness
-    #     if t == b: b += thickness
-
-    #     self.rect = skia.Rect.MakeLTRB(l, t, r, b)
-
-
     def execute(self, canvas):
         path = skia.Path().moveTo(
             self.rect.left(), self.rect.top()) \
@@ -1901,18 +1881,16 @@ class Browser:
         self.lock.release()
 
     def raster_tab(self):
-        tab_height = math.ceil(
-            self.active_tab.document.height + 2*VSTEP)
-        
-        if tab_height <= 0: tab_height = 1
-
+        if self.active_tab_height == None:
+            return
         if not self.tab_surface or \
-                tab_height != self.tab_surface.height():
-            self.tab_surface = skia.Surface(WIDTH, tab_height)
+                self.active_tab_height != self.tab_surface.height():
+            self.tab_surface = skia.Surface(WIDTH, self.active_tab_height)
 
         canvas = self.tab_surface.getCanvas()
         canvas.clear(skia.ColorWHITE)
-        self.active_tab.raster(canvas)
+        for cmd in self.active_tab_display_list:
+            cmd.execute(canvas)
 
     def raster_chrome(self):
         canvas = self.chrome_surface.getCanvas()

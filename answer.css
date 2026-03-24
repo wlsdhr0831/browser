@@ -2,6 +2,11 @@ pre {
     background-color: gray;
 }
 
+form {
+    background-color: lightgray;
+    border-radius: 5px;
+}
+
 a {
     color: blue;
 }
@@ -34,4 +39,16 @@ button {
     font-weight: normal;
     font-style: normal;
     background-color: orange;
+}
+
+
+.circle-link {
+    display: block;
+    width: 200px;
+    height: 200px;
+    background-color: red;
+    border-radius: 100px;
+    text-align: center;
+    color: white;
+    font-size: 20px;
 }

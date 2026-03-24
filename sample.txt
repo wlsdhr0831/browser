@@ -26,8 +26,9 @@ https://github.com/browserengineering/book/blob/main/src/lab7.py
 
 source skia-env/bin/activate
 
-/Library/Frameworks/Python.framework/Versions/3.14/bin/python3 server.py
-/Library/Frameworks/Python.framework/Versions/3.14/bin/python3 answer.py http://localhost:8000
-
 python3 server.py
 python3 answer.py http://localhost:8000
+
+# 로컬 파일 실행방법
+python3 -m http.server 8000
+python3 answer.py http://localhost:8000/test13.html

@@ -16,28 +16,10 @@ function Node(handle) { this.handle = handle; }
 Node.prototype.getAttribute = function (attr) {
     return call_python("getAttribute", this.handle, attr);
 }
+
 Node.prototype.removeChild = function (child) {
     call_python("removeChild", this.handle, child.handle);
     return child;
-}
-Object.defineProperty(Node.prototype, "children", {
-    get: function () {
-        var handles = call_python("children", this.handle);
-        return handles.map(function (h) {
-            return new Node(h);
-        });
-    }
-});
-
-LISTENERS = {}
-
-function Event(type) {
-    this.type = type
-    this.do_default = true;
-}
-
-Event.prototype.preventDefault = function () {
-    this.do_default = false;
 }
 
 Node.prototype.addEventListener = function (type, listener) {
@@ -48,12 +30,6 @@ Node.prototype.addEventListener = function (type, listener) {
     list.push(listener);
 }
 
-Object.defineProperty(Node.prototype, 'innerHTML', {
-    set: function (s) {
-        call_python("innerHTML_set", this.handle, s.toString());
-    }
-});
-
 Node.prototype.dispatchEvent = function (evt) {
     var type = evt.type;
     var handle = this.handle;
@@ -62,6 +38,39 @@ Node.prototype.dispatchEvent = function (evt) {
         list[i].call(this, evt);
     }
     return evt.do_default;
+}
+
+Object.defineProperty(Node.prototype, "children", {
+    get: function () {
+        var handles = call_python("children", this.handle);
+        return handles.map(function (h) {
+            return new Node(h);
+        });
+    }
+});
+
+Object.defineProperty(Node.prototype, 'innerHTML', {
+    set: function (s) {
+        call_python("innerHTML_set", this.handle, s.toString());
+    }
+});
+
+Object.defineProperty(Node.prototype, 'style', {
+    set: function (s) {
+        call_python("style_set", this.handle, s.toString());
+    }
+});
+
+
+LISTENERS = {}
+
+function Event(type) {
+    this.type = type
+    this.do_default = true;
+}
+
+Event.prototype.preventDefault = function () {
+    this.do_default = false;
 }
 
 SET_TIMEOUT_REQUESTS = {}

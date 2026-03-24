@@ -16,8 +16,15 @@ python3 browser.py http://browser.engineering/redirect3
 /Library/Frameworks/Python.framework/Versions/3.14/bin/python3 browser.py file:///Users/jinokseong/Documents/진옥/스터디/browser/default.html
 /Library/Frameworks/Python.framework/Versions/3.14/bin/python3 browser.py http://browser.engineering/index.html
 
-
 /Library/Frameworks/Python.framework/Versions/3.14/bin/python3 answer.py http://browser.engineering/index.html
+python answer.py http://localhost:8000
 
 
 https://github.com/browserengineering/book/blob/main/src/lab7.py
+
+
+/Library/Frameworks/Python.framework/Versions/3.14/bin/python3 server.py
+
+
+python3 server.py
+python3 browser.py http://localhost:8000
